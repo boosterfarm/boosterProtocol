@@ -60,9 +60,9 @@ contract BOOPools is Ownable {
     // The block number when reward Token mining starts.
     uint256 public startBlock;
     // block hacker user to deposit
-    mapping (address => bool) depositBlacklist;
+    mapping (address => bool) public depositBlacklist;
     // block hacker user to restricted reward
-    mapping (address => uint256) rewardRestricted;
+    mapping (address => uint256) public rewardRestricted;
     // enable pool emergency withdraw
     mapping (uint256 => bool) public emergencyWithdrawEnabled;
 

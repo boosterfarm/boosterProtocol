@@ -10,12 +10,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract BOOToken is ERC20Capped, Ownable {
     constructor (
             uint256 _totalSupply
-        // ) public ERC20Capped(_totalSupply) ERC20('Booster-Token', 'BOO') {
-        ) public ERC20Capped(_totalSupply) ERC20('BBB-Token', 'BBB') {
-        mintWhitelist[msg.sender] = true;
+        ) public ERC20Capped(_totalSupply) ERC20('Booster-Token', 'BOO') {
     }
 
-    mapping(address => bool) mintWhitelist;
+    mapping(address => bool) public mintWhitelist;
 
     function setMintWhitelist(address _account, bool _enabled) external onlyOwner {
         mintWhitelist[_account] = _enabled;
