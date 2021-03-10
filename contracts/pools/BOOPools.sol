@@ -4,7 +4,6 @@ pragma solidity 0.6.12;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -50,6 +49,7 @@ contract BOOPools is Ownable {
     BOOToken public rewardToken;
     // BOO tokens created per block.
     uint256 public rewardPerBlock;
+    address public devaddr;
 
     // Info of each pool.
     PoolInfo[] public poolInfo;
@@ -74,10 +74,12 @@ contract BOOPools is Ownable {
     constructor (
         address _rewardToken,
         uint256 _rewardPerBlock,
+        address _devaddr,
         uint256 _startBlock
     ) public {
         rewardToken = BOOToken(_rewardToken);
         startBlock = _startBlock;
+        devaddr = _devaddr;
         rewardPerBlock = _rewardPerBlock;
     }
 
@@ -111,6 +113,12 @@ contract BOOPools is Ownable {
         massUpdatePools();
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
+    }
+
+    // Update dev address by the previous one
+    function setDevAddress(address _devaddr) external {
+        require(msg.sender == devaddr, "only dev caller");
+        devaddr = _devaddr;
     }
 
     // block hacker user to deposit
@@ -180,6 +188,7 @@ contract BOOPools is Ownable {
                                 .mul(pool.allocPoint).div(totalAllocPoint);
         if (poolReward > 0) {
             rewardToken.mint(address(this), poolReward);
+            rewardToken.mint(devaddr, poolReward.div(10));
             pool.accRewardPerShare = pool.accRewardPerShare.add(poolReward.mul(1e18).div(pool.totalAmount));
         }
         pool.lastRewardBlock = block.number;
@@ -268,4 +277,3 @@ contract BOOPools is Ownable {
         revert();
     }
 }
-
