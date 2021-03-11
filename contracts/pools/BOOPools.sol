@@ -179,6 +179,7 @@ contract BOOPools is Ownable {
     function updatePool(uint256 _pid) public {
         PoolInfo storage pool = poolInfo[_pid];
         if (pool.allocPoint == 0 || pool.totalAmount == 0) {
+            pool.lastRewardBlock = block.number;
             return;
         }
         if (block.number <= pool.lastRewardBlock) {
