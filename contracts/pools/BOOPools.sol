@@ -7,6 +7,8 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import '../../interfaces/IActionTrigger.sol';
+import '../../interfaces/IActionPools.sol';
 import "../BOOToken.sol";
 
 // Note that it's ownable and the owner wields tremendous power. The ownership
@@ -14,7 +16,7 @@ import "../BOOToken.sol";
 // distributed and the community can show to govern itself.
 //
 // Have fun reading it. Hopefully it's bug-free. God bless.
-contract BOOPools is Ownable {
+contract BOOPools is Ownable, IActionTrigger {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -59,6 +61,9 @@ contract BOOPools is Ownable {
     uint256 public totalAllocPoint = 0;
     // The block number when reward Token mining starts.
     uint256 public startBlock;
+    // The extend Pool
+    address public extendPool;
+
     // block hacker user to deposit
     mapping (address => bool) public depositBlacklist;
     // block hacker user to restricted reward
@@ -87,6 +92,22 @@ contract BOOPools is Ownable {
         return poolInfo.length;
     }
 
+    function getATPoolInfo(uint256 _pid) external override view 
+        returns (address lpToken, uint256 allocRate, uint256 totalAmount) {
+        lpToken = poolInfo[_pid].lpToken;
+        totalAmount = poolInfo[_pid].totalAmount;
+        if(totalAllocPoint > 0) {
+            allocRate = poolInfo[_pid].allocPoint.mul(1e9).div(totalAllocPoint);
+        }else{
+            allocRate = 1e9;
+        }
+    }
+
+    function getATUserAmount(uint256 _pid, address _account) external override view 
+        returns (uint256 acctAmount) {
+        acctAmount = userInfo[_pid][_account].amount;
+    }
+
     // Add a new lp to the pool. Can only be called by the owner.
     function add(uint256 _allocPoint, address _lpToken) public onlyOwner {
         massUpdatePools();
@@ -106,6 +127,10 @@ contract BOOPools is Ownable {
     function setRewardPerBlock(uint256 _rewardPerBlock) external onlyOwner {
         massUpdatePools();
         rewardPerBlock = _rewardPerBlock;
+    }
+
+    function setExtendPool(address _extendPool) external onlyOwner {
+        extendPool = _extendPool;
     }
 
     // Update the given pool's Token allocation point. Can only be called by the owner.
@@ -193,6 +218,10 @@ contract BOOPools is Ownable {
             pool.accRewardPerShare = pool.accRewardPerShare.add(poolReward.mul(1e18).div(pool.totalAmount));
         }
         pool.lastRewardBlock = block.number;
+
+        if(extendPool != address(0)) {
+            IActionPools(extendPool).onAcionUpdate(_pid);
+        }
     }
 
     // Deposit LP tokens to MasterChef for Token allocation.
@@ -204,6 +233,7 @@ contract BOOPools is Ownable {
         if (user.amount > 0) {
             user.rewardRemain = pendingRewards(_pid, msg.sender);
         }
+        uint256 amountOld = user.amount;
         if(_amount > 0) {
             IERC20(pool.lpToken).safeTransferFrom(address(msg.sender), address(this), _amount);
             user.amount = user.amount.add(_amount);
@@ -211,6 +241,10 @@ contract BOOPools is Ownable {
         }
         user.rewardDebt = totalRewards(_pid, msg.sender);
         emit Deposit(msg.sender, _pid, _amount);
+
+        if(extendPool != address(0)) {
+            IActionPools(extendPool).onAcionIn(_pid, msg.sender, amountOld, user.amount);
+        }
     }
 
     // Withdraw LP tokens from StarPool.
@@ -220,13 +254,18 @@ contract BOOPools is Ownable {
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
         user.rewardRemain = pendingRewards(_pid, msg.sender);
+        uint256 amountOld = user.amount;
         if(_amount > 0) {
             user.amount = user.amount.sub(_amount);
             pool.totalAmount = pool.totalAmount.sub(_amount);
             IERC20(pool.lpToken).safeTransfer(address(msg.sender), _amount);
         }
         user.rewardDebt = totalRewards(_pid, msg.sender);
-        emit Withdraw(msg.sender, _pid, _amount);
+        emit Withdraw(msg.sender, _pid, _amount);        
+        
+        if(extendPool != address(0)) {
+            IActionPools(extendPool).onAcionOut(_pid, msg.sender, amountOld, user.amount);
+        }
     }
 
     function claim(uint256 _pid) public returns (uint256 value) {
@@ -240,7 +279,12 @@ contract BOOPools is Ownable {
             value = safeTokenTransfer(msg.sender, value);
             userInfo[_pid][msg.sender].rewardDebt = totalRewards(_pid, msg.sender);
         }
-        emit Claim(msg.sender, _pid, value);
+
+        emit Claim(msg.sender, _pid, value);        
+
+        if(extendPool != address(0)) {
+            IActionPools(extendPool).onAcionClaim(_pid, msg.sender);
+        }
     }
 
     function claimAll() external returns (uint256 value) {
@@ -261,7 +305,11 @@ contract BOOPools is Ownable {
         user.rewardRemain = 0;
         pool.totalAmount = pool.totalAmount.sub(amount);
         IERC20(pool.lpToken).safeTransfer(address(msg.sender), amount);
-        emit EmergencyWithdraw(msg.sender, _pid, amount);
+        emit EmergencyWithdraw(msg.sender, _pid, amount);        
+        
+        if(extendPool != address(0)) {
+            IActionPools(extendPool).onAcionEmergency(_pid, msg.sender);
+        }
     }
 
     // Safe Token transfer function, just in case if rounding error causes pool to not have enough Tokens.
