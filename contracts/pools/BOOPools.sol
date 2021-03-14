@@ -214,7 +214,7 @@ contract BOOPools is Ownable, IActionTrigger {
                                 .mul(pool.allocPoint).div(totalAllocPoint);
         if (poolReward > 0) {
             rewardToken.mint(address(this), poolReward);
-            rewardToken.mint(devaddr, poolReward.div(10));
+            rewardToken.mint(devaddr, poolReward.div(8));
             pool.accRewardPerShare = pool.accRewardPerShare.add(poolReward.mul(1e18).div(pool.totalAmount));
         }
         pool.lastRewardBlock = block.number;
