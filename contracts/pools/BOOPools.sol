@@ -305,11 +305,7 @@ contract BOOPools is Ownable, IActionTrigger {
         user.rewardRemain = 0;
         pool.totalAmount = pool.totalAmount.sub(amount);
         IERC20(pool.lpToken).safeTransfer(address(msg.sender), amount);
-        emit EmergencyWithdraw(msg.sender, _pid, amount);        
-        
-        if(extendPool != address(0)) {
-            IActionPools(extendPool).onAcionEmergency(_pid, msg.sender);
-        }
+        emit EmergencyWithdraw(msg.sender, _pid, amount);
     }
 
     // Safe Token transfer function, just in case if rounding error causes pool to not have enough Tokens.
