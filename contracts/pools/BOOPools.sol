@@ -7,8 +7,8 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import '../../interfaces/IActionTrigger.sol';
-import '../../interfaces/IActionPools.sol';
+import '../interfaces/IActionTrigger.sol';
+import '../interfaces/IActionPools.sol';
 import "../BOOToken.sol";
 
 // Note that it's ownable and the owner wields tremendous power. The ownership
@@ -111,7 +111,7 @@ contract BOOPools is Ownable, IActionTrigger {
     // Add a new lp to the pool. Can only be called by the owner.
     function add(uint256 _allocPoint, address _lpToken) public onlyOwner {
         massUpdatePools();
-        require(IERC20(_lpToken).totalSupply() > 0, 'error lptoken address');
+        require(IERC20(_lpToken).totalSupply() >= 0, 'error lptoken address');
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         poolInfo.push(PoolInfo({
             lpToken: _lpToken,
@@ -305,7 +305,11 @@ contract BOOPools is Ownable, IActionTrigger {
         user.rewardRemain = 0;
         pool.totalAmount = pool.totalAmount.sub(amount);
         IERC20(pool.lpToken).safeTransfer(address(msg.sender), amount);
-        emit EmergencyWithdraw(msg.sender, _pid, amount);
+        emit EmergencyWithdraw(msg.sender, _pid, amount);        
+        
+        if(extendPool != address(0)) {
+            IActionPools(extendPool).onAcionEmergency(_pid, msg.sender);
+        }
     }
 
     // Safe Token transfer function, just in case if rounding error causes pool to not have enough Tokens.
