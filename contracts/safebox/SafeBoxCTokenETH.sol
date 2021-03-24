@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import '../interfaces/ISafeBox.sol';
 import '../interfaces/IActionTrigger.sol';
@@ -16,7 +17,7 @@ import "../utils/TenMath.sol";
 
 import "./SafeBoxCTokenImplETH.sol";
 
-contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISafeBox {
+contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IActionTrigger, ISafeBox {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -66,6 +67,12 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
     event SafeBoxWithdraw(address indexed user, uint256 amount);
     event SafeBoxClaim(address indexed user, uint256 amount);
 
+    event SetBlacklist(address indexed _account, bool _newset);
+    event SetBuyback(address indexed buyback);
+    event SetBorrowLimitRate(uint256 oldRate, uint256 newRate);
+    event SetOptimalUtilizationRate(uint256 oldV, uint256 newV);
+    event SetStableRateSlope(uint256 oldV, uint256 newV);
+
     constructor (
         address _bank,
         address _cToken
@@ -104,6 +111,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
     // blacklist
     function setBlacklist(address _account, bool _newset) external onlyOwner {
         blacklist[_account] = _newset;
+        emit SetBlacklist(_account, _newset);
     }
 
     function setAcionPool(address _actionPool) public onlyOwner {
@@ -112,10 +120,12 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
 
     function setBuyback(address _iBuyback) public onlyOwner {
         iBuyback = _iBuyback;
+        emit SetBuyback(_iBuyback);
     }
 
     function setBorrowLimitRate(uint256 _borrowLimitRate) external onlyOwner {
         require(_borrowLimitRate <= 1e9, 'rate too high');
+        emit SetBorrowLimitRate(borrowLimitRate, _borrowLimitRate);
         borrowLimitRate = _borrowLimitRate;
     }
 
@@ -134,11 +144,13 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
     // for platform borrow interest rate
     function setOptimalUtilizationRate(uint256 _optimalUtilizationRate) external onlyOwner {
         require(_optimalUtilizationRate <= 1e9, 'rate too high');
+        emit SetOptimalUtilizationRate(optimalUtilizationRate, _optimalUtilizationRate);
         optimalUtilizationRate = _optimalUtilizationRate;
     }
 
     function setStableRateSlope(uint256 _stableRateSlope) external onlyOwner {
         require(_stableRateSlope <= 1e4*1e9, 'rate too high');
+        emit SetStableRateSlope(stableRateSlope, _stableRateSlope);
         stableRateSlope = _stableRateSlope;
     }
 
@@ -157,10 +169,10 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
     function getBorrowInfo(uint256 _bid) external override view 
         returns (address owner, uint256 amount, address strategy, uint256 pid) {
 
-            strategy = borrowInfo[_bid].strategy;
-            pid = borrowInfo[_bid].pid;
-            owner = borrowInfo[_bid].owner;
-            amount = borrowInfo[_bid].amount;
+        strategy = borrowInfo[_bid].strategy;
+        pid = borrowInfo[_bid].pid;
+        owner = borrowInfo[_bid].owner;
+        amount = borrowInfo[_bid].amount;
     }
 
     function getBorrowFactorPrewiew() public virtual view returns (uint256) {
@@ -233,7 +245,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
     }
 
     // deposit
-    function deposit(uint256 _value) external virtual override {
+    function deposit(uint256 _value) external virtual override nonReentrant {
         update();
         IERC20(token).safeTransferFrom(msg.sender, address(this), _value);
         _deposit(msg.sender, _value);
@@ -255,7 +267,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
         return mintValue;
     }
 
-    function withdraw(uint256 _tTokenAmount) external virtual override {
+    function withdraw(uint256 _tTokenAmount) external virtual override nonReentrant {
         update();
         _withdraw(msg.sender, _tTokenAmount);
     }
@@ -286,7 +298,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
         return _tTokenAmount;
     }
 
-    function claim(uint256 _value) external virtual override {
+    function claim(uint256 _value) external virtual override nonReentrant {
         update();
         _claim(msg.sender, uint256(_value));
     }
@@ -426,7 +438,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
         return ;
     }
 
-    function emergencyWithdraw() external virtual override {
+    function emergencyWithdraw() external virtual override nonReentrant {
         require(emergencyWithdrawEnabled, 'not in emergency');
 
         uint256 withdrawAmount = call_balanceOf(address(this), msg.sender);
@@ -445,7 +457,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
         tokenSafeTransfer(address(token), msg.sender);
     }
 
-    function emergencyRepay(uint256 _bid, uint256 _value) external virtual override {
+    function emergencyRepay(uint256 _bid, uint256 _value) external virtual override nonReentrant {
         require(emergencyRepayEnabled, 'not in emergency');
         // in emergency mode , only repay loan
         BorrowInfo storage borrowCurrent = borrowInfo[_bid];
@@ -516,7 +528,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, Ownable, IActionTrigger, ISaf
         }
     }
 
-    function mintDonate(uint256 _value) public virtual override {
+    function mintDonate(uint256 _value) public virtual override nonReentrant {
         IERC20(token).safeTransferFrom(msg.sender, address(this), _value);
         ctokenDeposit(_value);
         update();

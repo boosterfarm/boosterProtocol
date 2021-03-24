@@ -36,10 +36,12 @@ contract StrategyConfig is Ownable, IStrategyConfig {
     }
 
     function setFeeGather(address _feeGather) external onlyOwner {
+        emit SetFeeGather(feeGather, _feeGather);
         feeGather = _feeGather;
     }
 
     function setReservedGather(address _reservedGather) external onlyOwner {
+        emit SetReservedGather(reservedGather, _reservedGather);
         reservedGather = _reservedGather;
     }
 
@@ -60,6 +62,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setBorrowFactor(address _strategy, uint256 _poolid, uint256 _borrowFactor) external override onlyOwner {
         borrowFactor[_strategy][_poolid] = _borrowFactor;
+        emit SetBorrowFactor(_strategy, _poolid, _borrowFactor);
         require(checkBorrowAndLiquidation(_strategy, _poolid), 'set error');
     }
 
@@ -73,6 +76,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
     function setLiquidationFactor(address _strategy, uint256 _poolid, uint256 _liquidationFactor) external override onlyOwner {
         require(_liquidationFactor >= 2e8, 'too lower');
         liquidationFactor[_strategy][_poolid] = _liquidationFactor;
+        emit SetLiquidationFactor(_strategy, _poolid, _liquidationFactor);
         require(checkBorrowAndLiquidation(_strategy, _poolid), 'set error');
     }
 
@@ -83,6 +87,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setFarmPoolFactor(address _strategy, uint256 _poolid, uint256 _farmPoolFactor) external override onlyOwner {
         farmPoolFactor[_strategy][_poolid] = _farmPoolFactor;
+        emit SetFarmPoolFactor(_strategy, _poolid, _farmPoolFactor);
     }
 
     // fee config
@@ -93,6 +98,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setDepositFee(address _strategy, uint256 _poolid, uint256 _depositFee) external override onlyOwner {
         depositFee[_strategy][_poolid] = _depositFee;
+        emit SetDepositFee(_strategy, _poolid, _depositFee);
     }
 
     function getWithdrawFee(address _strategy, uint256 _poolid) external override view returns (address a, uint256 b) {
@@ -102,6 +108,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setWithdrawFee(address _strategy, uint256 _poolid, uint256 _withdrawFee) external override onlyOwner {
         withdrawFee[_strategy][_poolid] = _withdrawFee;
+        emit SetWithdrawFee(_strategy, _poolid, _withdrawFee);
     }
 
     function getRefundFee(address _strategy, uint256 _poolid) external override view returns (address a, uint256 b) {
@@ -111,6 +118,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setRefundFee(address _strategy, uint256 _poolid, uint256 _refundFee) external override onlyOwner {
         refundFee[_strategy][_poolid] = _refundFee;
+        emit SetRefundFee(_strategy, _poolid, _refundFee);
     }
 
     function getClaimFee(address _strategy, uint256 _poolid) external override view returns (address a, uint256 b) {
@@ -120,6 +128,7 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setClaimFee(address _strategy, uint256 _poolid, uint256 _claimFee) external override onlyOwner {
         claimFee[_strategy][_poolid] = _claimFee;
+        emit SetClaimFee(_strategy, _poolid, _claimFee);
     }
 
     function getLiquidationFee(address _strategy, uint256 _poolid) external override view returns (address a, uint256 b) {
@@ -129,5 +138,6 @@ contract StrategyConfig is Ownable, IStrategyConfig {
 
     function setLiquidationFee(address _strategy, uint256 _poolid, uint256 _liquidationFee) external override onlyOwner {
         liquidationFee[_strategy][_poolid] = _liquidationFee;
+        emit SetLiquidationFee(_strategy, _poolid, _liquidationFee);
     }
 }

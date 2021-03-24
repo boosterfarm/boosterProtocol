@@ -57,6 +57,11 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     address public override bank;          // address of bank
     IActionPools public actionPool;        // address of action pool
  
+    event AddPool(uint256 _pid, uint256 _poolId, address lpToken, address _baseToken);
+    event SetSConfig(address _old, address _new);
+    event SetAcionPool(address _old, address _new);
+    event SetMiniRewardAmount(uint256 _pid, uint256 _miniRewardAmount);
+
     modifier onlyBank() {
         require(bank == msg.sender, 'mdex strategy only call by bank');
         _;
@@ -145,6 +150,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         uint256 pid = poolInfo.length.sub(1);
         require(utils.checkAddPoolLimit(pid, _baseToken, lpTokenInPools), 'check add pool limit');
         resetApprove(poolInfo.length.sub(1));
+        emit AddPool(pid, _poolId, lpTokenInPools, _baseToken);
     }
 
     function resetApprove(uint256 _pid) public onlyOwner {
@@ -165,14 +171,17 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     }
     
     function setAcionPool(address _actionPool) external onlyOwner {
+        emit SetAcionPool(address(actionPool), _actionPool);
         actionPool = IActionPools(_actionPool);
     }
 
     function setSConfig(address _sconfig) external onlyOwner {
+        emit SetSConfig(address(utils.sconfig()), _sconfig);
         utils.setSConfig(_sconfig);
     }
 
     function setMiniRewardAmount(uint256 _pid, uint256 _miniRewardAmount) external onlyOwner {
+        emit SetMiniRewardAmount(_pid, _miniRewardAmount);
         poolInfo[_pid].miniRewardAmount = _miniRewardAmount;
     }
 
@@ -202,9 +211,11 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     }
 
     // update reward variables for all pools. 
-    function massUpdatePools() public override {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; ++pid) {
+    function massUpdatePools(uint256 _start, uint256 _end) external override {
+        if(_end <= 0) {
+            _end = poolInfo.length;
+        }
+        for (uint256 pid = _start; pid < _end; ++pid) {
             updatePool(pid);
         }
     }
@@ -421,8 +432,8 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         }
     }
 
-    function withdrawLPToken(uint256 _pid, address _account, uint256 _rate) external override onlyBank {
-        _withdraw(_pid, _account, _rate, true);
+    function withdrawLPToken(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) external override onlyBank {
+        _withdraw(_pid, _account, _rate, true, _desirePrice, _slippage);
 
         // make withdraw token to lptoken
         address token0 = poolInfo[_pid].collateralToken[0];
@@ -436,14 +447,17 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         utils.transferFromAllToken(address(this), _account, poolInfo[_pid].baseToken, address(poolInfo[_pid].lpToken));
     }
 
-    function withdraw(uint256 _pid, address _account, uint256 _rate) public override onlyBank {
-        _withdraw(_pid, _account, _rate, false);
+    function withdraw(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) public override onlyBank {
+        _withdraw(_pid, _account, _rate, false, _desirePrice, _slippage);
         address token0 = poolInfo[_pid].collateralToken[0];
         address token1 = poolInfo[_pid].collateralToken[1];
         utils.transferFromAllToken(address(this), _account, token0, token1);
     }
 
-    function _withdraw(uint256 _pid, address _account, uint256 _rate, bool _fast) internal {
+    function _withdraw(uint256 _pid, address _account, uint256 _rate, bool _fast, uint256 _desirePrice, uint256 _slippage) internal {
+        
+        require(utils.checkSlippageLimit(_pid, _desirePrice, _slippage), 'check slippage error');
+
         // update rewards
         updatePool(_pid);
 

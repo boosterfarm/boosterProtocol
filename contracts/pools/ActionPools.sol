@@ -61,6 +61,10 @@ contract ActionPools is Ownable, IActionPools {
     event ActionClaim(address indexed user, uint256 indexed pid, uint256 amount);
     // event ActionEmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
 
+    event AddPool(uint256 indexed _pid, address _callFrom, uint256 _callId, address _rewardToken, uint256 _maxPerBlock);
+    event SetRewardMaxPerBlock(uint256 indexed _pid, uint256 _maxPerBlock);
+    event SetRewardRestricted(address _hacker, uint256 _rate);
+
     constructor (address _booToken, address _boodev) public {
         booToken = BOOToken(_booToken);
         require(booToken.totalSupply() >= 0, 'booToken');
@@ -108,11 +112,14 @@ contract ActionPools is Ownable, IActionPools {
         }));
         eventSources[_callFrom] = true;
         poolIndex[_callFrom][_callId].push(poolInfo.length.sub(1));
+
+        emit AddPool(poolInfo.length.sub(1), _callFrom, _callId, _rewardToken, _maxPerBlock);
     }
 
     // Set the number of reward produced by each block
     function setRewardMaxPerBlock(uint256 _pid, uint256 _maxPerBlock) external onlyOwner {
         poolInfo[_pid].rewardMaxPerBlock = _maxPerBlock;
+        emit SetRewardMaxPerBlock(_pid, _maxPerBlock);
     }
 
     function setAutoUpdate(uint256 _pid, bool _set) external onlyOwner {
@@ -126,6 +133,7 @@ contract ActionPools is Ownable, IActionPools {
     function setRewardRestricted(address _hacker, uint256 _rate) external onlyOwner {
         require(_rate <= 1e9, 'max is 1e9');
         rewardRestricted[_hacker] = _rate;
+        emit SetRewardRestricted(_hacker, _rate);
     }
 
     function setBooDev(address _boodev) external {
@@ -180,9 +188,11 @@ contract ActionPools is Ownable, IActionPools {
     }
 
     // Update reward variables for all pools. Be careful of gas spending!
-    function massUpdatePools() public {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; ++pid) {
+    function massUpdatePools(uint256 _start, uint256 _end) public {
+        if(_end <= 0) {
+            _end = poolInfo.length;
+        }
+        for (uint256 pid = _start; pid < _end; ++pid) {
             updatePool(pid);
         }
     }

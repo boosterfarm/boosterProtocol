@@ -36,16 +36,24 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
     mapping(address => bool) public blacklist;
     mapping(uint256 => bool) public emergencyEnabled;
 
+    event AddBox(uint256 indexed _boxid, address _safebox);
+    event AddStrategy(uint256 indexed _sid, address indexed _strategylink, uint256 indexed _pid, bool _blisted);
+    event SetBlacklist(address indexed _account, bool _newset);
+    event SetEmergencyEnabled(uint256 indexed _sid, bool _newset);
+    event SetBoxListed(uint256 indexed _boxid, bool _listed);
+
     constructor() public {
     }
 
     // blacklist manager
     function setBlacklist(address _account, bool _newset) external onlyOwner {
         blacklist[_account] = _newset;
+        emit SetBlacklist(_account, _newset);
     }    
     
     function setEmergencyEnabled(uint256 _sid, bool _newset) external onlyOwner {
         emergencyEnabled[_sid] = _newset;
+        emit SetEmergencyEnabled(_sid, _newset);
     }
 
     // box manager
@@ -59,11 +67,13 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
         uint256 boxid = boxInfo.length.sub(1);
         boxlisted[boxid] = true;
         boxIndex[_safebox] = boxid;
+        emit AddBox(boxid, _safebox);
         require(ISafeBox(_safebox).bank() == address(this), 'bank not me?');
     }
 
     function setBoxListed(uint256 _boxid, bool _listed) external onlyOwner {
         boxlisted[_boxid] = _listed;
+        emit SetBoxListed(_boxid, _listed);
     }
 
     // Strategy manager
@@ -86,11 +96,12 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
             IStrategyLink(_strategylink),
             _pid));
         strategyIndex[_strategylink][_pid] = strategyInfo.length.sub(1);
+        emit AddStrategy(strategyIndex[_strategylink][_pid], _strategylink, _pid, _blisted);
         require(IStrategyLink(_strategylink).bank() == address(this), 'bank not me?');
     }
 
     function depositLPToken(uint256 _sid, uint256 _amount, uint256 _bid, uint256 _bAmount, uint256 _desirePrice, uint256 _slippage) 
-            public returns (uint256 lpAmount) {
+            public nonReentrant returns (uint256 lpAmount) {
         require(strategyInfo[_sid].isListed, 'not listed');
         require(!blacklist[msg.sender], 'address in blacklist');
 
@@ -105,7 +116,7 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
     }
 
     function deposit(uint256 _sid, uint256[] memory _amount, uint256 _bid, uint256 _bAmount, uint256 _desirePrice, uint256 _slippage)
-            public returns (uint256 lpAmount) {
+            public nonReentrant returns (uint256 lpAmount) {
         require(strategyInfo[_sid].isListed, 'not listed');
         require(!blacklist[msg.sender], 'address in blacklist');
 
@@ -125,20 +136,20 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
         return strategyInfo[_sid].iLink.deposit(strategyInfo[_sid].pid, msg.sender, boxitem, _bAmount, _desirePrice, _slippage);
     }
 
-    function withdrawLPToken(uint256 _sid, uint256 _rate) external {
-        return strategyInfo[_sid].iLink.withdrawLPToken(strategyInfo[_sid].pid, msg.sender, _rate);
+    function withdrawLPToken(uint256 _sid, uint256 _rate, uint256 _desirePrice, uint256 _slippage) external nonReentrant {
+        return strategyInfo[_sid].iLink.withdrawLPToken(strategyInfo[_sid].pid, msg.sender, _rate, _desirePrice, _slippage);
     }
 
-    function withdraw(uint256 _sid, uint256 _rate) external {
-        return strategyInfo[_sid].iLink.withdraw(strategyInfo[_sid].pid, msg.sender, _rate);
+    function withdraw(uint256 _sid, uint256 _rate, uint256 _desirePrice, uint256 _slippage) external nonReentrant {
+        return strategyInfo[_sid].iLink.withdraw(strategyInfo[_sid].pid, msg.sender, _rate, _desirePrice, _slippage);
     }
 
-    function emergencyWithdraw(uint256 _sid) external {
+    function emergencyWithdraw(uint256 _sid) external nonReentrant {
         require(emergencyEnabled[_sid], 'emergency not enabled');
         return strategyInfo[_sid].iLink.emergencyWithdraw(strategyInfo[_sid].pid, msg.sender);
     }
 
-    function liquidation(uint256 _sid, address _account, uint256 _maxDebt) external {
+    function liquidation(uint256 _sid, address _account, uint256 _maxDebt) external nonReentrant {
         uint256 pid = strategyInfo[_sid].pid;
         if(_maxDebt > 0) {
             address baseToken = strategyInfo[_sid].iLink.getBaseToken(pid);

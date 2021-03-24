@@ -44,6 +44,8 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
     uint256 public constant FILDA_DEPOSIT_CALLID = 16;      // depositinfo callid for action callback
     uint256 public constant FILDA_BORROW_CALLID = 18;       // borrowinfo callid for action callback
 
+    event SetFildaPool(address _actionPoolFilda, uint256 _piddeposit, uint256 _pidborrow);
+
     constructor (
         address _bank,
         address _cToken
@@ -60,6 +62,7 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
         actionPoolFilda = _actionPoolFilda;
         poolDepositId = _piddeposit;
         poolBorrowId = _pidborrow;
+        emit SetFildaPool(_actionPoolFilda, _piddeposit, _pidborrow);
     }
 
     function getATPoolInfo(uint256 _pid) external virtual override view 
@@ -86,13 +89,13 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
         require(rewardToken == address(FILDA_TOKEN), 'rewardToken error');
     }
 
-    function deposit(uint256 _value) external virtual override {
+    function deposit(uint256 _value) external virtual override nonReentrant {
         update();
         IERC20(token).safeTransferFrom(msg.sender, address(this), _value);
         _deposit(msg.sender, _value);
     }
 
-    function withdraw(uint256 _tTokenAmount) external virtual override {
+    function withdraw(uint256 _tTokenAmount) external virtual override nonReentrant {
         update();
         _withdraw(msg.sender, _tTokenAmount);
     }
@@ -159,7 +162,7 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
         }
     }
 
-    function claim(uint256 _value) external virtual override {
+    function claim(uint256 _value) external virtual override nonReentrant {
         update();
         _claim(msg.sender, _value);
     }
