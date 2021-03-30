@@ -15,6 +15,7 @@ import "../interfaces/IStrategyLink.sol";
 import '../interfaces/IActionPools.sol';
 import '../interfaces/IActionTrigger.sol';
 import "../interfaces/ITenBankHall.sol";
+import "../interfaces/IBuyback.sol";
 import "../utils/TenMath.sol";
 import "./StrategyMDexPools.sol";
 import "./StrategyUtils.sol";
@@ -56,6 +57,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     StrategyUtils public utils;            // some functions 
     address public override bank;          // address of bank
     IActionPools public actionPool;        // address of action pool
+    IBuyback public buyback;
  
     event AddPool(uint256 _pid, uint256 _poolId, address lpToken, address _baseToken);
     event SetSConfig(address _old, address _new);
@@ -96,12 +98,13 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     function getPoolInfo(uint256 _pid) external override view 
         returns(address[] memory collateralToken, address baseToken, address lpToken, 
             uint256 poolId, uint256 totalLPAmount, uint256 totalLPReinvest) {
-        collateralToken = poolInfo[_pid].collateralToken;
-        baseToken = address(poolInfo[_pid].baseToken);
-        lpToken = address(poolInfo[_pid].lpToken);
-        poolId = poolInfo[_pid].poolId;
-        totalLPAmount = poolInfo[_pid].totalLPAmount;
-        totalLPReinvest = poolInfo[_pid].totalLPReinvest;
+        PoolInfo storage pool = poolInfo[_pid];
+        collateralToken = pool.collateralToken;
+        baseToken = address(pool.baseToken);
+        lpToken = address(pool.lpToken);
+        poolId = pool.poolId;
+        totalLPAmount = pool.totalLPAmount;
+        totalLPReinvest = pool.totalLPReinvest;
     }
 
     function getPoolCollateralToken(uint256 _pid) external override view returns (address[] memory collateralToken) {
@@ -180,6 +183,10 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         utils.setSConfig(_sconfig);
     }
 
+    function setBuyback(address _buyback) external onlyOwner {
+        buyback = IBuyback(_buyback);
+    }
+
     function setMiniRewardAmount(uint256 _pid, uint256 _miniRewardAmount) external onlyOwner {
         emit SetMiniRewardAmount(_pid, _miniRewardAmount);
         poolInfo[_pid].miniRewardAmount = _miniRewardAmount;
@@ -203,6 +210,10 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     
     function getBorrowAmount(uint256 _pid, address _account) public override view returns (uint256 amount) {
         amount = utils.getBorrowAmount(_pid, _account);
+    }
+
+    function getBorrowAmountInBaseToken(uint256 _pid, address _account) public override view returns (uint256 amount) {
+        amount = utils.getBorrowAmountInBaseToken(_pid, _account);
     }
 
     function getDepositAmount(uint256 _pid, address _account) external override view returns (uint256 amount) {
@@ -297,8 +308,11 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         require(user.borrowFrom == address(0) || _bAmount == 0 ||
                 user.borrowFrom == _borrowFrom, 
                 'borrowFrom cannot changed');
-        if(user.borrowFrom == address(0)) {
+        if(user.borrowFrom == address(0) && _borrowFrom != address(0)) {
             user.borrowFrom = _borrowFrom;
+            address borrowToken = ISafeBox(user.borrowFrom).token();
+            require( borrowToken == poolInfo[_pid].collateralToken[0] || 
+                     borrowToken == poolInfo[_pid].collateralToken[1], "borrow token error");
         }
 
         require(utils.checkSlippageLimit(_pid, _desirePrice, _slippage), 'check slippage error');
@@ -313,7 +327,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
 
         // borrow
         makeBorrowBaseToken(_pid, _account, user.borrowFrom, _bAmount);
-        
+
         // swap 
         makeBalanceOptimalLiquidity(_pid);
         
@@ -433,7 +447,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     }
 
     function withdrawLPToken(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) external override onlyBank {
-        _withdraw(_pid, _account, _rate, true, _desirePrice, _slippage);
+        _withdraw(_pid, _account, _rate, _desirePrice, _slippage);
 
         // make withdraw token to lptoken
         address token0 = poolInfo[_pid].collateralToken[0];
@@ -447,14 +461,20 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         utils.transferFromAllToken(address(this), _account, poolInfo[_pid].baseToken, address(poolInfo[_pid].lpToken));
     }
 
-    function withdraw(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) public override onlyBank {
-        _withdraw(_pid, _account, _rate, false, _desirePrice, _slippage);
+    function withdraw(uint256 _pid, address _account, uint256 _rate, address _toToken, uint256 _desirePrice, uint256 _slippage) public override onlyBank {
         address token0 = poolInfo[_pid].collateralToken[0];
         address token1 = poolInfo[_pid].collateralToken[1];
+        require(_toToken == token0 || _toToken == token1, 'totoken error');
+        _withdraw(_pid, _account, _rate, _desirePrice, _slippage);
+        address tokensell = _toToken == token0 ? token1 : token0;
+        uint256 amountsell = IERC20(tokensell).balanceOf(address(this));
+        if(amountsell > 0) {
+            utils.getTokenIn(tokensell, amountsell, _toToken);
+        }
         utils.transferFromAllToken(address(this), _account, token0, token1);
     }
 
-    function _withdraw(uint256 _pid, address _account, uint256 _rate, bool _fast, uint256 _desirePrice, uint256 _slippage) internal {
+    function _withdraw(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) internal {
         
         require(utils.checkSlippageLimit(_pid, _desirePrice, _slippage), 'check slippage error');
 
@@ -479,7 +499,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
             // withdraw fee
             utils.makeWithdrawRewardFee(_pid, borrowRate, rewardsRate);
             // repay
-            repayBorrow(_pid, _account, _rate, _fast);
+            repayBorrow(_pid, _account, _rate);
         }
 
         // booking
@@ -509,7 +529,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         }
 
         // calc borrow rate
-        uint256 borrowAmount = getBorrowAmount(_pid, _account);        
+        uint256 borrowAmount = getBorrowAmountInBaseToken(_pid, _account);        
         uint256 withdrawBaseAmount = utils.getLPToken2TokenAmount(address(poolInfo[_pid].lpToken), poolInfo[_pid].baseToken, withdrawLPTokenAmount);
         if (withdrawBaseAmount > 0) {
             borrowRate = borrowAmount.mul(1e9).div(withdrawBaseAmount);
@@ -525,8 +545,8 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         router.removeLiquidity(token0, token1, _withdrawLPTokenAmount, 0, 0, address(this), block.timestamp.add(60));
     }
 
-    function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _fast) public override onlyBank {
-        utils.makeRepay(_pid, userInfo[_pid][_account].borrowFrom, _account, _rate, _fast);
+    function repayBorrow(uint256 _pid, address _account, uint256 _rate) public override onlyBank {
+        utils.makeRepay(_pid, userInfo[_pid][_account].borrowFrom, _account, _rate);
         if(getBorrowAmount(_pid, _account) == 0) {
             userInfo[_pid][_account].borrowFrom = address(0);
             userInfo[_pid][_account].bid = 0;
@@ -555,7 +575,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         user.lpAmount = 0;
 
         makeWithdrawRemoveLiquidity(_pid, withdrawLPTokenAmount);
-        repayBorrow(_pid, _account, 1e9, false);
+        repayBorrow(_pid, _account, 1e9);
 
         utils.transferFromAllToken(address(this), _account, 
                         poolInfo[_pid].collateralToken[0], 
@@ -566,6 +586,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         _maxDebt;
 
         UserInfo storage user = userInfo[_pid][_account];
+        PoolInfo storage pool = poolInfo[_pid];
 
         // update rewards
         updatePool(_pid);
@@ -583,9 +604,9 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         uint256 lpAmountOld = user.lpAmount;
         uint256 withdrawLPTokenAmount = pendingLPAmount(_pid, _account);
         // booking
-        poolInfo[_pid].totalLPAmount = TenMath.safeSub(poolInfo[_pid].totalLPAmount, user.lpAmount);
-        poolInfo[_pid].totalLPReinvest = TenMath.safeSub(poolInfo[_pid].totalLPReinvest, withdrawLPTokenAmount);
-        poolInfo[_pid].totalPoints = TenMath.safeSub(poolInfo[_pid].totalPoints, user.lpPoints);
+        pool.totalLPAmount = TenMath.safeSub(pool.totalLPAmount, user.lpAmount);
+        pool.totalLPReinvest = TenMath.safeSub(pool.totalLPReinvest, withdrawLPTokenAmount);
+        pool.totalPoints = TenMath.safeSub(pool.totalPoints, user.lpPoints);
         
         user.lpPoints = 0;
         user.lpAmount = 0;
@@ -595,33 +616,35 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
 
         emit StrategyLiquidation(address(this), _pid, _account, withdrawLPTokenAmount);
 
-        // repay borrow for liquidation
-        makeLiquidationRepay(_pid, _account, borrowAmount);
+        // repay borrow
+        repayBorrow(_pid, _account, 1e9);
+
+        // swap all token to basetoken
+        address tokensell = pool.baseToken == pool.collateralToken[0] ? 
+                            pool.collateralToken[1] : pool.collateralToken[0];
+        uint256 amountsell = IERC20(tokensell).balanceOf(tokensell);
+        utils.getTokenIn(tokensell, amountsell, pool.baseToken);
 
         // liquidation fee
-        utils.makeLiquidationFee(_pid, poolInfo[_pid].baseToken, borrowAmount);
+        utils.makeLiquidationFee(_pid, pool.baseToken, borrowAmount);
 
         utils.transferFromAllToken(address(this), _hunter, 
-                            poolInfo[_pid].collateralToken[0], 
-                            poolInfo[_pid].collateralToken[1]);
+                            pool.collateralToken[0], 
+                            pool.collateralToken[1]);
 
         if(address(actionPool) != address(0) && lpAmountOld > 0) {
             actionPool.onAcionOut(_pid, _account, lpAmountOld, 0);
         }
     }
 
-    function makeLiquidationRepay(uint256 _pid, address _account, uint256 _borrowAmount) internal {
-        _borrowAmount;
-
-        // swap all token to basetoken
-        address token0 = poolInfo[_pid].collateralToken[0];
-        address token1 = poolInfo[_pid].collateralToken[1];
-        (uint256 amount0, uint256 amount1) = getTokenBalance_this(token0, token1);
-        utils.getTokenIn(token0, amount0, poolInfo[_pid].baseToken);
-        utils.getTokenIn(token1, amount1, poolInfo[_pid].baseToken);
-
-        // repay borrow
-        repayBorrow(_pid, _account, 1e9, false);
-        require(userInfo[_pid][_account].borrowFrom == address(0), 'debt not clear');
+    function makeExtraRewards() external {
+        if(address(buyback) == address(0)) {
+            return ;
+        }
+        (address mdxToken, uint256 value) = utils.getMdexExtraReward();
+        uint256 fee = value.mul(3e6).div(1e9);
+        IERC20(mdxToken).transfer(msg.sender, fee);
+        IERC20(mdxToken).approve(address(buyback), value.sub(fee));
+        buyback.buyback(mdxToken, value.sub(fee));
     }
 }

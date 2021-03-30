@@ -13,8 +13,8 @@ contract StrategyMDexPools {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
-    IMdexHecoPool constant hecopool = IMdexHecoPool(0xFB03e11D93632D97a8981158A632Dd5986F5E909);
-    address mdxToken = address(0x25D2e80cB6B86881Fd7e07dd263Fb79f4AbE033c);
+    IMdexHecoPool public constant hecopool = IMdexHecoPool(0xFB03e11D93632D97a8981158A632Dd5986F5E909);
+    address public mdxToken = address(0x25D2e80cB6B86881Fd7e07dd263Fb79f4AbE033c);
 
     function poolDepositToken(uint256 _poolId) public virtual view returns (address lpToken) {
         (lpToken,,,,,) = hecopool.poolInfo(_poolId);

@@ -171,8 +171,8 @@ contract ActionPools is Ownable, IActionPools {
         uint256 userAmount = IActionTrigger(pool.callFrom).getATUserAmount(pool.callId, _account);
         (,,uint256 poolTotalAmount) = IActionTrigger(pool.callFrom).getATPoolInfo(pool.callId);
         value = totalRewards(_pid, _account, userAmount, poolTotalAmount)
-                    .add(user.rewardRemain)
-                    .sub(user.rewardDebt);
+                    .add(user.rewardRemain);
+        value = safesub(value, user.rewardDebt);
     }
 
     function totalRewards(uint256 _pid, address _account, uint256 _amount, uint256 _totalAmount) 
@@ -321,12 +321,10 @@ contract ActionPools is Ownable, IActionPools {
         emit ActionWithdraw(_account, _pid, _fromAmount, _toAmount);
     }
 
-    function claimAll() external returns (uint256 value) {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; ++pid) {
-            value = value.add(claim(pid));
+    function claimIds(uint256[] memory _pidlist) external returns (uint256 value) {
+        for (uint256 piid = 0; piid < _pidlist.length; ++piid) {
+            value = value.add(claim(_pidlist[piid]));
         }
-        
     }
 
     function claim(uint256 _pid) public returns (uint256 value) {

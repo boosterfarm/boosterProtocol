@@ -140,8 +140,8 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
         return strategyInfo[_sid].iLink.withdrawLPToken(strategyInfo[_sid].pid, msg.sender, _rate, _desirePrice, _slippage);
     }
 
-    function withdraw(uint256 _sid, uint256 _rate, uint256 _desirePrice, uint256 _slippage) external nonReentrant {
-        return strategyInfo[_sid].iLink.withdraw(strategyInfo[_sid].pid, msg.sender, _rate, _desirePrice, _slippage);
+    function withdraw(uint256 _sid, uint256 _rate, address _toToken, uint256 _desirePrice, uint256 _slippage) external nonReentrant {
+        return strategyInfo[_sid].iLink.withdraw(strategyInfo[_sid].pid, msg.sender, _rate, _toToken, _desirePrice, _slippage);
     }
 
     function emergencyWithdraw(uint256 _sid) external nonReentrant {
@@ -152,8 +152,9 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
     function liquidation(uint256 _sid, address _account, uint256 _maxDebt) external nonReentrant {
         uint256 pid = strategyInfo[_sid].pid;
         if(_maxDebt > 0) {
-            address baseToken = strategyInfo[_sid].iLink.getBaseToken(pid);
-            IERC20(baseToken).safeTransferFrom(msg.sender, address(strategyInfo[_sid].iLink), _maxDebt);
+            (address borrowFrom,) = IStrategyLink(strategyInfo[_sid].iLink).getBorrowInfo(pid, _account);
+            address borrowToken = ISafeBox(borrowFrom).token();
+            IERC20(borrowToken).safeTransferFrom(msg.sender, address(strategyInfo[_sid].iLink), _maxDebt);
         }
         strategyInfo[_sid].iLink.liquidation(pid, _account, msg.sender, _maxDebt);
     }

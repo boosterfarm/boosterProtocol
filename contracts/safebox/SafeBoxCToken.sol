@@ -410,7 +410,7 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, IActionTr
         borrowCurrent.rewardDebtPlatform = borrowRewardsPlatformAmount(_bid);
 
         // booking
-        borrowTotal = borrowTotal.sub(repayAmount);
+        borrowTotal = TenMath.safeSub(borrowTotal, repayAmount);
         lastBorrowCurrent = call_borrowBalanceCurrent_this();
 
         uint256 accountBorrowAmountOld = accountBorrowAmount[borrowCurrent.owner];
@@ -423,7 +423,8 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, IActionTr
         }
 
         // repay borrow
-        ctokenRepayBorrow(repayAmount.add(repayRemain));
+        uint256 repayRealAmount = TenMath.min(repayAmount.add(repayRemain), lastBorrowCurrent);
+        ctokenRepayBorrow(repayRealAmount);
 
         // return of the rest
         uint256 balancefree = call_balanceOf(token, address(this));
@@ -431,7 +432,7 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, IActionTr
             IERC20(token).safeTransfer(msg.sender, uint256(balancefree));
         }
 
-        if(actionPool != address(0) && _value > 0) {
+        if(actionPool != address(0) && repayAmount > 0) {
             IActionPools(actionPool).onAcionOut(CTOKEN_BORROW, borrowCurrent.owner, 
                     accountBorrowAmountOld, accountBorrowAmount[borrowCurrent.owner]);
         }
@@ -497,8 +498,8 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, IActionTr
                 // booking
                 uint256 newDebtAmount1 = lastBorrowCurrentNow.sub(lastBorrowCurrent);
                 uint256 newDebtAmount2 = newDebtAmount1.mul(getBorrowFactor().sub(1e9)).div(1e9);
-                accDebtPerBorrow = accDebtPerBorrow.add(newDebtAmount1.mul(1e18).div(borrowTotal));
-                accDebtPlatformPerBorrow = accDebtPlatformPerBorrow.add(newDebtAmount2.mul(1e18).div(borrowTotal));
+                accDebtPerBorrow = accDebtPerBorrow.add(newDebtAmount1.mul(1e18).div(borrowTotal).add(1));
+                accDebtPlatformPerBorrow = accDebtPlatformPerBorrow.add(newDebtAmount2.mul(1e18).div(borrowTotal).add(1));
             }
             lastBorrowCurrent = lastBorrowCurrentNow;
         }

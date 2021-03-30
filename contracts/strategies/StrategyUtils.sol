@@ -11,11 +11,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "../../interfaces/IMdexRouter.sol";
 import "../../interfaces/IMdexPair.sol";
 import "../../interfaces/IMdexFactory.sol";
+import "../../interfaces/IMdexHecoSwapPool.sol";
 
 import '../interfaces/IStrategyLink.sol';
 import '../interfaces/IStrategyConfig.sol';
 import '../interfaces/ISafeBox.sol';
 import '../interfaces/ITenBankHall.sol';
+
 import "../utils/TenMath.sol";
 
 contract StrategyUtils is Ownable {
@@ -163,7 +165,7 @@ contract StrategyUtils is Ownable {
         uint256 holdAmount = checkBorrowGetHoldAmount(strategy, _pid, baseToken);
 
         uint256 totalAmount = IStrategyLink(strategy).getDepositAmount(_pid, _account);
-        uint256 borrowAmount = IStrategyLink(strategy).getBorrowAmount(_pid, _account);
+        uint256 borrowAmount = IStrategyLink(strategy).getBorrowAmountInBaseToken(_pid, _account);
         totalAmount = totalAmount.add(holdAmount);
 
         uint256 borrowFactor = sconfig.getBorrowFactor(strategy, _pid);
@@ -195,7 +197,7 @@ contract StrategyUtils is Ownable {
         bok = (_borrowRate > liquRate);
     }
 
-    function makeRepay(uint256 _pid, address _borrowFrom, address _account, uint256 _rate, bool _fast)
+    function makeRepay(uint256 _pid, address _borrowFrom, address _account, uint256 _rate)
             external onlyOwner {
         if(_borrowFrom == address(0)) {
             return ;
@@ -216,43 +218,65 @@ contract StrategyUtils is Ownable {
 
         address token0 = collateralToken[0];
         address token1 = collateralToken[1];
-        address baseToken = IStrategyLink(strategy).getBaseToken(_pid);
-        uint256 baseTokenAmount = IERC20(baseToken).balanceOf(strategy);
-        if( baseTokenAmount < repayAmount ) {
+        address borrowToken = ISafeBox(_borrowFrom).token();
+        uint256 borrowTokenAmount = IERC20(borrowToken).balanceOf(strategy);
+        
+        if( borrowTokenAmount < repayAmount ) {
             // insufficient, sell off all the currency held to repay the debt
-            uint256 amount0 = 0;
-            if(_fast) {
-                amount0 = getAmountOut(token0, token1, repayAmount.sub(baseTokenAmount));
-            } else {
-                amount0 = IERC20(token0).balanceOf(strategy);
+            address holdToken = borrowToken == token0 ? token1 : token0;
+            uint256 amountsell = getAmountOut(holdToken, borrowToken, repayAmount.sub(borrowTokenAmount));
+            uint256 holdTokenAmount = IERC20(holdToken).balanceOf(strategy);
+            require(holdTokenAmount >= amountsell, 'debt explosion');
+            if(amountsell > 0) {
+                IERC20(holdToken).safeTransferFrom(address(strategy), address(this), amountsell);
+                getTokenInTo(address(this), holdToken, amountsell, borrowToken);
             }
-            if(amount0 > 0) {
-                IERC20(token0).safeTransferFrom(address(strategy), address(this), amount0);
-                getTokenInTo(address(this), token0, amount0, baseToken);
-            }
-            uint256 amount1 = IERC20(token1).balanceOf(strategy);
-            IERC20(token1).safeTransferFrom(address(strategy), address(this), amount1);
+            IERC20(borrowToken).safeTransferFrom(address(strategy), address(this), borrowTokenAmount);
+            uint256 amount1 = IERC20(borrowToken).balanceOf(address(this));
         } else {
-            IERC20(baseToken).safeTransferFrom(address(strategy), address(this), repayAmount);
+            IERC20(borrowToken).safeTransferFrom(address(strategy), address(this), repayAmount);
         }
-        IERC20(baseToken).safeTransfer(address(_borrowFrom), repayAmount);
+
+        IERC20(borrowToken).safeTransfer(address(_borrowFrom), repayAmount);
         ISafeBox(_borrowFrom).repay(bid, repayAmount);
-        uint256 free = IERC20(baseToken).balanceOf(address(this));
+        uint256 free = IERC20(borrowToken).balanceOf(address(this));
         if(free > 0) {
-            IERC20(baseToken).safeTransfer(address(strategy), free);
+            IERC20(borrowToken).safeTransfer(address(strategy), free);
         }
     }
 
     function getBorrowAmount(uint256 _pid, address _account) external view returns (uint256 value) {
         (address borrowFrom,uint256 bid) = IStrategyLink(strategy).getBorrowInfo(_pid, _account);
-        if(borrowFrom != address(0) && bid != 0) {
-            value = value.add(ISafeBox(borrowFrom).pendingBorrowAmount(bid));
-            value = value.add(ISafeBox(borrowFrom).pendingBorrowRewards(bid));
+        return getBorrowAmount(borrowFrom, bid);
+    }
+
+    function getBorrowAmount(address _borrowFrom, uint256 _bid) internal view returns (uint256 value) {
+        if(_borrowFrom != address(0) && _bid != 0) {
+            value = value.add(ISafeBox(_borrowFrom).pendingBorrowAmount(_bid));
+            value = value.add(ISafeBox(_borrowFrom).pendingBorrowRewards(_bid));
         } else {
             value = 0;
         }
     }
- 
+
+    function getBorrowAmountInBaseToken(uint256 _pid, address _account) external view returns (uint256 value) {
+        (address borrowFrom,uint256 bid) = IStrategyLink(strategy).getBorrowInfo(_pid, _account);
+        value = getBorrowAmount(borrowFrom, bid);
+        value = calcBorrowAmountInBaseToken(_pid, borrowFrom, value);
+    }
+
+    function calcBorrowAmountInBaseToken(uint256 _pid, address _borrowFrom, uint256 _amount) public view returns (uint256 value) {
+        if(_borrowFrom == address(0) || _amount <= 0) {
+            return 0;
+        }
+        value = _amount;
+        address baseToken = IStrategyLink(strategy).getBaseToken(_pid);
+        address token = ISafeBox(_borrowFrom).token();
+        if(token != baseToken) {
+            value = getAmountIn(token, value, baseToken);
+        }
+    }
+
     // helper function
     function transferFromAllToken(address _from, address _to, address _token0, address _token1)
         public onlyOwner {
@@ -396,5 +420,15 @@ contract StrategyUtils is Ownable {
         } else {
             value = result[result.length-1];
         }
+    }
+
+    function getMdexExtraReward() public virtual returns (address token, uint256 rewards) {
+        IMdexHecoSwapPool swappool = IMdexHecoSwapPool(0x7373c42502874C88954bDd6D50b53061F018422e);
+        token = swappool.mdx();
+        uint256 uBalanceBefore = IERC20(token).balanceOf(address(this));
+        swappool.takerWithdraw();
+        uint256 uBalanceAfter = IERC20(token).balanceOf(address(this));
+        rewards = uBalanceAfter.sub(uBalanceBefore);
+        transferFromAllToken(address(this), msg.sender, token, token);
     }
 }
