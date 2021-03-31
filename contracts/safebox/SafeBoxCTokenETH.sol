@@ -17,7 +17,7 @@ import "../utils/TenMath.sol";
 
 import "./SafeBoxCTokenImplETH.sol";
 
-contract SafeBoxCTokenImplETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IActionTrigger, ISafeBox {
+contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IActionTrigger, ISafeBox {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
