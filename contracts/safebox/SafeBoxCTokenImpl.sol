@@ -83,8 +83,11 @@ contract SafeBoxCTokenImpl is ERC20 {
         value = ctokenWithdraw(_lpAmount);
     }
 
-    function ctokenBorrow(uint256 _value) internal virtual {
-        require(eToken.borrow(_value) == 0, 'borrow error');
+    function ctokenBorrow(uint256 _value) internal virtual returns (uint256 value) {
+        uint256 cBalanceBefore = call_balanceOf(baseToken(), address(this));
+        require(eToken.borrow(_value) == 0, 'borrow ubalance error');
+        uint256 cBalanceAfter = call_balanceOf(baseToken(), address(this));
+        value = cBalanceAfter.sub(cBalanceBefore);
     }
 
     function ctokenRepayBorrow(uint256 _value) internal virtual {

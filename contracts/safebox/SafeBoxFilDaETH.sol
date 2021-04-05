@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import '../../interfaces/IFilDaPool.sol';
 import '../interfaces/ISafeBox.sol';
@@ -21,30 +22,17 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
     IFilDaPool public constant ipools = IFilDaPool(0xb74633f2022452f377403B638167b0A135DB096d);
     IERC20 public constant FILDA_TOKEN = IERC20(0xE36FFD17B2661EB57144cEaEf942D95295E637F0);
 
-    struct FildaUserInfo {
-        uint256 supplyAmount;
-        uint256 supplyDept;
-        uint256 supplyRemain;
-
-        uint256 borrowAmount;
-        uint256 borrowDept;
-        uint256 borrowRemain;
-    }
-    
     uint256 public lastFildaTokenBlock;        // fileda update
-    uint256 public accFildaTokenPerSupply;     // 1e18
-    uint256 public accFildaTokenPerBorrow;     // 1e18
     
-    mapping(address => FildaUserInfo) public fildaUserInfo;
-
     address public actionPoolFilda;             // address for action pool
     uint256 public poolDepositId;               // poolid of depositor s filda token rewards in action pool, the action pool relate boopool deposit
     uint256 public poolBorrowId;                // poolid of borrower s filda token rewards in action pool 
 
     uint256 public constant FILDA_DEPOSIT_CALLID = 16;      // depositinfo callid for action callback
-    uint256 public constant FILDA_BORROW_CALLID = 18;       // borrowinfo callid for action callback
+    uint256 public constant FILDA_BORROW_CALLID = 18;       // borrowinfo callid for comp action callback
 
-    event SetFildaPool(address _actionPoolFilda, uint256 _piddeposit, uint256 _pidborrow);
+    event SetFildaDepositPool(address _actionPoolFilda, uint256 _piddeposit);
+    event SetFildaBorrowPool(address _compActionPool, uint256 _pidborrow);
 
     constructor (
         address _bank,
@@ -57,28 +45,18 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
         updatetoken();
     }
 
-    function setFildaPool(address _actionPoolFilda, uint256 _piddeposit, uint256 _pidborrow) public onlyOwner {
-        checkFildaPool(_actionPoolFilda, _pidborrow, FILDA_BORROW_CALLID);
+    // mint filda for supplies to action pools
+    function setFildaDepositPool(address _actionPoolFilda, uint256 _piddeposit) public onlyOwner {
         actionPoolFilda = _actionPoolFilda;
         poolDepositId = _piddeposit;
+        emit SetFildaDepositPool(_actionPoolFilda, _piddeposit);
+    }
+
+    // mint filda for borrows to comp action pools
+    function setFildaBorrowPool(uint256 _pidborrow) public onlyOwner {
+        checkFildaPool(compActionPool, _pidborrow, FILDA_BORROW_CALLID);
         poolBorrowId = _pidborrow;
-        emit SetFildaPool(_actionPoolFilda, _piddeposit, _pidborrow);
-    }
-
-    function getATPoolInfo(uint256 _pid) external virtual override view 
-        returns (address lpToken, uint256 allocRate, uint256 totalAmount) {
-            lpToken = token;
-            allocRate = 5e8; // nouse
-            if(_pid == CTOKEN_BORROW || _pid == FILDA_BORROW_CALLID) {
-                totalAmount = getBorrowTotal();
-            }
-    }
-
-    function getATUserAmount(uint256 _pid, address _account) external virtual override view 
-        returns (uint256 acctAmount) {
-            if(_pid == CTOKEN_BORROW || _pid == FILDA_BORROW_CALLID) {
-                acctAmount = accountBorrowAmount[_account];
-            }
+        emit SetFildaBorrowPool(compActionPool, _pidborrow);
     }
 
     function checkFildaPool(address _fildaPool, uint256 _pid, uint256 _fildacallid) internal view {
@@ -102,27 +80,25 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
     
     function borrow(uint256 _bid, uint256 _value, address _to) external virtual override onlyBank {
         update();
-
         address owner = borrowInfo[_bid].owner;
-        uint256 accountBorrowAmountOld = accountBorrowAmount[owner];
+        uint256 accountBorrowPointsOld = accountBorrowPoints[owner];
         _borrow(_bid, _value, _to);
-        
-        if(actionPoolFilda != address(0) && _value > 0) {
-            IActionPools(actionPoolFilda).onAcionIn(FILDA_BORROW_CALLID, owner, 
-                    accountBorrowAmountOld, accountBorrowAmount[owner]);
+
+        if(compActionPool != address(0) && _value > 0) {
+            IActionPools(compActionPool).onAcionIn(FILDA_BORROW_CALLID, owner, 
+                    accountBorrowPointsOld, accountBorrowPoints[owner]);
         }
     }
 
     function repay(uint256 _bid, uint256 _value) external virtual override {
         update();
-
         address owner = borrowInfo[_bid].owner;
-        uint256 accountBorrowAmountOld = accountBorrowAmount[owner];
+        uint256 accountBorrowPointsOld = accountBorrowPoints[owner];
         _repay(_bid, _value);
 
-        if(actionPoolFilda != address(0) && _value > 0) {
-            IActionPools(actionPoolFilda).onAcionOut(FILDA_BORROW_CALLID, owner, 
-                    accountBorrowAmountOld, accountBorrowAmount[owner]);
+        if(compActionPool != address(0) && _value > 0) {
+            IActionPools(compActionPool).onAcionOut(FILDA_BORROW_CALLID, owner, 
+                    accountBorrowPointsOld, accountBorrowPoints[owner]);
         }
     }
 
@@ -141,17 +117,17 @@ contract SafeBoxFilDaETH is SafeBoxCTokenETH {
         uint256 uBalanceBefore;
         uint256 uBalanceAfter;
 
-        // rewards for borrow
-        if(borrowTotal > 0 && actionPoolFilda != address(0)) {
+        // rewards for borrow, mint for comp action pool
+        if(borrowTotalAmountWithPlatform > 0 && compActionPool != address(0)) {
             uBalanceBefore = FILDA_TOKEN.balanceOf(address(this));
             ipools.claimComp(holders, cTokens, true, false);
             uBalanceAfter = FILDA_TOKEN.balanceOf(address(this));
             uint256 borrowerRewards = uBalanceAfter.sub(uBalanceBefore);
-            FILDA_TOKEN.transfer(actionPoolFilda, borrowerRewards);
-            IActionPools(actionPoolFilda).mintRewards(poolBorrowId);
+            FILDA_TOKEN.transfer(compActionPool, borrowerRewards);
+            IActionPools(compActionPool).mintRewards(poolBorrowId);
         }
 
-        // rewards for supply
+        // rewards for supply, mint for action pool
         if(totalSupply() > 0 && actionPoolFilda != address(0)) {
             uBalanceBefore = FILDA_TOKEN.balanceOf(address(this));
             ipools.claimComp(holders, cTokens, false, true);

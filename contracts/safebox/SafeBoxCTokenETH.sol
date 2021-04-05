@@ -10,14 +10,14 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import '../interfaces/ISafeBox.sol';
-import '../interfaces/IActionTrigger.sol';
+import '../interfaces/ICompActionTrigger.sol';
 import '../interfaces/IActionPools.sol';
 import '../interfaces/IBuyback.sol';
 import "../utils/TenMath.sol";
 
 import "./SafeBoxCTokenImplETH.sol";
 
-contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IActionTrigger, ISafeBox {
+contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICompActionTrigger, ISafeBox {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -25,11 +25,8 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
         address strategy;      // borrow from strategy
         uint256 pid;           // borrow to pool
         address owner;         // borrower
-        uint256 amount;         // borrow amount
-        uint256 rewardDebt;     // borrow debt for interest
-        uint256 rewardDebtPlatform; // borrow debt for platform interest
-        uint256 rewardRemain;       // borrow interest saved
-        uint256 rewardRemainPlatform;   // borrow platform interest saved
+        uint256 amount;        // borrow amount
+        uint256 bPoints;       // borrow proportion
     }
 
     // supply manager
@@ -38,11 +35,13 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
     // borrow manager
     BorrowInfo[] public borrowInfo;     // borrow order info
     mapping(address => mapping(address => mapping(uint256 => uint256))) public borrowIndex;   // _account, _strategy, _pid,  mapping id of borrowinfo, base from 1
-    mapping(address => uint256) public accountBorrowAmount;   // _account,  amount
-    uint256 public borrowTotal;         // total of borrow amount
+    mapping(address => uint256) public  accountBorrowPoints;   // _account,  amount
     uint256 public lastBorrowCurrent;   // last settlement for 
-    uint256 public accDebtPerBorrow;    // borrow interest per borrow
-    uint256 public accDebtPlatformPerBorrow;    // borrow platform interest per borrow
+
+    uint256 public borrowTotalPoints;          // total of user bPoints
+    uint256 public borrowTotalAmountWithPlatform;  // total of user borrows and interests and platform
+    uint256 public borrowTotalAmount;          // total of user borrows and interests
+    uint256 public borrowTotal;                // total of user borrows
 
     uint256 public borrowLimitRate = 7e8;    // borrow limit,  max = borrowTotal * borrowLimitRate / 1e9, default=80%
     uint256 public borrowMinAmount;          // borrow min amount limit
@@ -55,7 +54,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
     address public override bank;       // borrow can from bank only 
     address public override token;      // deposit and borrow token
 
-    address public actionPool;          // action pool for borrow rewards
+    address public compActionPool;          // action pool for borrow rewards
     uint256 public constant CTOKEN_BORROW = 1;  // action pool borrow action id
 
     uint256 public optimalUtilizationRate = 6e8;  // Lending rate, ideal 1e9, default = 60%
@@ -81,7 +80,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
         require(IERC20(token).totalSupply() >= 0, 'token error');
         bank = _bank;
         // 0 id  Occupied,  Available bid never be zero
-        borrowInfo.push(BorrowInfo(address(0), 0, address(0), 0, 0, 0, 0, 0));
+        borrowInfo.push(BorrowInfo(address(0), 0, address(0), 0, 0));
     }
 
     modifier onlyBank() {
@@ -90,18 +89,19 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
     }
 
     // link to actionpool , for borrower s allowance
-    function getATPoolInfo(uint256 _pid) external virtual override view 
-        returns (address lpToken, uint256 allocRate, uint256 totalAmount) {
+    function getCATPoolInfo(uint256 _pid) external virtual override view 
+        returns (address lpToken, uint256 allocRate, uint256 totalPoints, uint256 totalAmount) {
             _pid;
             lpToken = token;
             allocRate = 5e8; // never use
-            totalAmount = getBorrowTotal();
+            totalPoints = borrowTotalPoints;
+            totalAmount = borrowTotalAmountWithPlatform;
     }
 
-    function getATUserAmount(uint256 _pid, address _account) external virtual override view 
-        returns (uint256 acctAmount) {
+    function getCATUserAmount(uint256 _pid, address _account) external virtual override view 
+        returns (uint256 acctPoints) {
             _pid;
-            acctAmount = accountBorrowAmount[_account];
+            acctPoints = accountBorrowPoints[_account];
     }
 
     function getSource() external virtual override view returns (string memory) {
@@ -114,8 +114,8 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
         emit SetBlacklist(_account, _newset);
     }
 
-    function setAcionPool(address _actionPool) public onlyOwner {
-        actionPool = _actionPool;
+    function setCompAcionPool(address _compActionPool) public onlyOwner {
+        compActionPool = _compActionPool;
     }
 
     function setBuyback(address _iBuyback) public onlyOwner {
@@ -198,7 +198,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
     }
 
     function getBorrowTotal() public virtual override view returns (uint256) {
-        return borrowTotal;
+        return borrowTotalAmountWithPlatform;
     }
 
     function getDepositTotal() public virtual override view returns (uint256) {
@@ -219,29 +219,11 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
 
     // borrow interest, the sum of filda interest and platform interest
     function pendingBorrowRewards(uint256 _bid) public virtual override view returns (uint256 value) {
-        uint256 v1 = borrowRewardsAmount(_bid)
-                .add(borrowInfo[_bid].rewardRemain)
-                .sub(borrowInfo[_bid].rewardDebt);
-        uint256 v2 = borrowRewardsPlatformAmount(_bid)
-                .add(borrowInfo[_bid].rewardRemainPlatform)
-                .sub(borrowInfo[_bid].rewardDebtPlatform);
-        value = v1.add(v2);
-    }
-
-    function borrowRewardsAmount(uint256 _bid) public view returns (uint256 value) {
-        BorrowInfo storage borrowCurrent = borrowInfo[_bid];
-        require(borrowCurrent.amount >= 0, 'borrow amount error');
-        value = accDebtPerBorrow.mul(borrowCurrent.amount).div(1e18);
-    }
-
-    function borrowRewardsPlatformAmount(uint256 _bid) public view returns (uint256 value) {
-        BorrowInfo storage borrowCurrent = borrowInfo[_bid];
-        require(borrowCurrent.amount >= 0, 'borrow amount error');
-        value = accDebtPlatformPerBorrow.mul(borrowCurrent.amount).div(1e18);
-    }
-
-    function getBorrowAmount(address _account) external virtual override view returns (uint256 value) {
-        return accountBorrowAmount[_account];
+        if(borrowTotalPoints <= 0) {
+            return 0;
+        }
+        value = borrowInfo[_bid].bPoints.mul(borrowTotalAmountWithPlatform).div(borrowTotalPoints);
+        value = TenMath.safeSub(value, borrowInfo[_bid].amount);
     }
 
     // deposit
@@ -274,14 +256,13 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
 
     function _withdraw(address _account, uint256 _tTokenAmount) internal returns (uint256) {
         // withdraw if lptokens value is not up borrowLimitRate
-        uint256 maxBorrowAmount = call_balanceOfCToken_this().sub(_tTokenAmount)
-                                    .mul(getBaseTokenPerLPToken()).div(1e18)
-                                    .mul(borrowLimitRate).div(1e9);
-        require(maxBorrowAmount >= borrowTotal, 'no money to withdraw');
-
         if(_tTokenAmount > balanceOf(_account)) {
             _tTokenAmount = balanceOf(_account);
         }
+        uint256 maxBorrowAmount = call_balanceOfCToken_this().sub(_tTokenAmount)
+                                    .mul(getBaseTokenPerLPToken()).div(1e18)
+                                    .mul(borrowLimitRate).div(1e9);
+        require(maxBorrowAmount >= borrowTotalAmountWithPlatform, 'no money to withdraw');
 
         _burn(_account, uint256(_tTokenAmount));
 
@@ -319,7 +300,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
         require(_account != address(0), 'borrowid _account error');
         borrowId = getBorrowId(_strategy, _pid, _account);
         if(borrowId == 0 && _add) {
-            borrowInfo.push(BorrowInfo(_strategy, _pid, _account, 0, 0, 0, 0, 0));
+            borrowInfo.push(BorrowInfo(_strategy, _pid, _account, 0, 0));
             borrowId = borrowInfo.length.sub(1);
             borrowIndex[_account][_strategy][_pid] = borrowId;
         }
@@ -336,42 +317,39 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
         uint256 maxBorrowAmount = call_balanceOfCToken_this()
                                     .mul(getBaseTokenPerLPToken()).div(1e18)
                                     .mul(borrowLimitRate).div(1e9);
-        require(maxBorrowAmount >= borrowTotal.add(_value), 'no money to borrow');
+        require(maxBorrowAmount >= borrowTotalAmountWithPlatform.add(_value), 'no money to borrow');
         require(_value >= borrowMinAmount, 'borrow amount too low');
 
         BorrowInfo storage borrowCurrent = borrowInfo[_bid];
-        
-        if(borrowCurrent.amount > 0) {
-            borrowCurrent.rewardRemain = borrowRewardsAmount(_bid)
-                                        .add(borrowCurrent.rewardRemain)
-                                        .sub(borrowCurrent.rewardDebt);
-            borrowCurrent.rewardRemainPlatform = borrowRewardsPlatformAmount(_bid)
-                                        .add(borrowCurrent.rewardRemainPlatform)
-                                        .sub(borrowCurrent.rewardDebtPlatform);
-        }
 
         // borrow
-        ctokenBorrow(_value);
-
-        uint256 ubalance = call_balanceOf(token, address(this));
+        uint256 ubalance = ctokenBorrow(_value);
         require(ubalance == _value, 'token borrow error');
 
         tokenSafeTransfer(address(token), _to);
 
         // booking
-        borrowCurrent.amount = borrowCurrent.amount.add(ubalance);
-        borrowTotal = borrowTotal.add(ubalance);
+        uint256 addPoint = _value;
+        if(borrowTotalPoints > 0) {
+            addPoint = _value.mul(borrowTotalPoints).div(borrowTotalAmountWithPlatform);
+        }
 
-        borrowCurrent.rewardDebt = borrowRewardsAmount(_bid);
-        borrowCurrent.rewardDebtPlatform = borrowRewardsPlatformAmount(_bid);
+        borrowCurrent.bPoints = borrowCurrent.bPoints.add(addPoint);
+        borrowTotalPoints = borrowTotalPoints.add(addPoint);
+        borrowTotalAmountWithPlatform = borrowTotalAmountWithPlatform.add(_value);
         lastBorrowCurrent = call_borrowBalanceCurrent_this();
 
-        uint256 accountBorrowAmountOld = accountBorrowAmount[borrowCurrent.owner];
-        accountBorrowAmount[borrowCurrent.owner] = accountBorrowAmount[borrowCurrent.owner].add(ubalance);
+        borrowCurrent.amount = borrowCurrent.amount.add(_value);
+        borrowTotal = borrowTotal.add(_value);
+        borrowTotalAmount = borrowTotalAmount.add(_value);
+        
+        // notify for action pool
+        uint256 accountBorrowPointsOld = accountBorrowPoints[borrowCurrent.owner];
+        accountBorrowPoints[borrowCurrent.owner] = accountBorrowPoints[borrowCurrent.owner].add(addPoint);
 
-        if(actionPool != address(0) && ubalance > 0) {
-            IActionPools(actionPool).onAcionIn(CTOKEN_BORROW, borrowCurrent.owner, 
-                    accountBorrowAmountOld, accountBorrowAmount[borrowCurrent.owner]);
+        if(compActionPool != address(0) && addPoint > 0) {
+            IActionPools(compActionPool).onAcionIn(CTOKEN_BORROW, borrowCurrent.owner,
+                    accountBorrowPointsOld, accountBorrowPoints[borrowCurrent.owner]);
         }
         return ;
     }
@@ -384,57 +362,51 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
     function _repay(uint256 _bid, uint256 _value) internal {
         BorrowInfo storage borrowCurrent = borrowInfo[_bid];
 
-        if(borrowCurrent.amount > 0) {
-            borrowCurrent.rewardRemain = borrowRewardsAmount(_bid)
-                                        .add(borrowCurrent.rewardRemain)
-                                        .sub(borrowCurrent.rewardDebt);
-            borrowCurrent.rewardRemainPlatform = borrowRewardsPlatformAmount(_bid)
-                                        .add(borrowCurrent.rewardRemainPlatform)
-                                        .sub(borrowCurrent.rewardDebtPlatform);
+        uint256 removedPoints;
+        if(_value >= pendingBorrowRewards(_bid).add(borrowCurrent.amount)) {
+            removedPoints = borrowCurrent.bPoints;
+        }else{
+            removedPoints = _value.mul(borrowTotalPoints).div(borrowTotalAmountWithPlatform);
+            removedPoints = TenMath.min(removedPoints, borrowCurrent.bPoints);
         }
 
         // booking
-        uint256 rewardRemainPlatform = TenMath.min(_value, borrowCurrent.rewardRemainPlatform);
-        borrowCurrent.rewardRemainPlatform = borrowCurrent.rewardRemainPlatform.sub(rewardRemainPlatform);
-        _value = _value.sub(rewardRemainPlatform);
-
-        uint256 repayRemain = TenMath.min(_value, borrowCurrent.rewardRemain);
-        borrowCurrent.rewardRemain = borrowCurrent.rewardRemain.sub(repayRemain);
-        _value = _value.sub(repayRemain);
-        
-        uint256 repayAmount = TenMath.min(_value, borrowCurrent.amount);
-        borrowCurrent.amount = borrowCurrent.amount.sub(repayAmount);
-        _value = _value.sub(repayAmount);
-
-        borrowCurrent.rewardDebt = borrowRewardsAmount(_bid);
-        borrowCurrent.rewardDebtPlatform = borrowRewardsPlatformAmount(_bid);
-
-        // booking
-        borrowTotal = TenMath.safeSub(borrowTotal, repayAmount);
+        uint256 userAmount = removedPoints.mul(borrowCurrent.amount).div(borrowCurrent.bPoints); // to reduce amount for booking
+        uint256 repayAmount = removedPoints.mul(borrowTotalAmount).div(borrowTotalPoints); // to repay = amount + interest
+        uint256 platformAmount = TenMath.safeSub(removedPoints.mul(borrowTotalAmountWithPlatform).div(borrowTotalPoints),
+                                 repayAmount);  // platform interest
+    
+        borrowCurrent.bPoints = TenMath.safeSub(borrowCurrent.bPoints, removedPoints);
+        borrowTotalPoints = TenMath.safeSub(borrowTotalPoints, removedPoints);
+        borrowTotalAmountWithPlatform = TenMath.safeSub(borrowTotalAmountWithPlatform, repayAmount.add(platformAmount));
         lastBorrowCurrent = call_borrowBalanceCurrent_this();
 
-        uint256 accountBorrowAmountOld = accountBorrowAmount[borrowCurrent.owner];
-        accountBorrowAmount[borrowCurrent.owner] = TenMath.safeSub(accountBorrowAmount[borrowCurrent.owner], repayAmount);
-
+        borrowCurrent.amount = TenMath.safeSub(borrowCurrent.amount, userAmount);
+        borrowTotal = TenMath.safeSub(borrowTotal, userAmount);
+        borrowTotalAmount = TenMath.safeSub(borrowTotalAmount, repayAmount);
+        
         // platform interest will buyback
-        if(rewardRemainPlatform > 0 && iBuyback != address(0)) {
-            IERC20(token).approve(iBuyback, rewardRemainPlatform);
-            IBuyback(iBuyback).buyback(token, rewardRemainPlatform);
+        if(platformAmount > 0 && iBuyback != address(0)) {
+            IERC20(token).approve(iBuyback, platformAmount);
+            IBuyback(iBuyback).buyback(token, platformAmount);
         }
 
         // repay borrow
-        uint256 repayRealAmount = TenMath.min(repayAmount.add(repayRemain), lastBorrowCurrent);
-        ctokenRepayBorrow(repayRealAmount);
+        repayAmount = TenMath.min(repayAmount, lastBorrowCurrent);
+
+        ctokenRepayBorrow(repayAmount);
+        lastBorrowCurrent = call_borrowBalanceCurrent_this();
 
         // return of the rest
-        uint256 balancefree = call_balanceOf(token, address(this));
-        if( balancefree > 0) {
-            IERC20(token).safeTransfer(msg.sender, uint256(balancefree));
-        }
+        tokenSafeTransfer(token, msg.sender);
 
-        if(actionPool != address(0) && repayAmount > 0) {
-            IActionPools(actionPool).onAcionOut(CTOKEN_BORROW, borrowCurrent.owner, 
-                    accountBorrowAmountOld, accountBorrowAmount[borrowCurrent.owner]);
+        // notify for action pool
+        uint256 accountBorrowPointsOld = accountBorrowPoints[borrowCurrent.owner];
+        accountBorrowPoints[borrowCurrent.owner] = TenMath.safeSub(accountBorrowPoints[borrowCurrent.owner], removedPoints);
+
+        if(compActionPool != address(0) && removedPoints > 0) {
+            IActionPools(compActionPool).onAcionOut(CTOKEN_BORROW, borrowCurrent.owner,
+                    accountBorrowPointsOld, accountBorrowPoints[borrowCurrent.owner]);
         }
         return ;
     }
@@ -471,18 +443,16 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
         IERC20(baseToken()).safeTransferFrom(msg.sender, address(this), repayAmount);
         ctokenRepayBorrow(repayAmount);
 
-        // booking
-        borrowCurrent.amount = 0;
-        borrowCurrent.rewardDebt = 0;
-        borrowCurrent.rewardRemain = 0;
-        borrowCurrent.rewardDebtPlatform = 0;
-        borrowCurrent.rewardRemainPlatform = 0;
-    
-        // uint256 accountBorrowAmountOld = accountBorrowAmount[borrowCurrent.owner];
-        accountBorrowAmount[borrowCurrent.owner] = TenMath.safeSub(accountBorrowAmount[borrowCurrent.owner], repayAmount);
+        uint256 accountBorrowPointsOld = accountBorrowPoints[borrowCurrent.owner];
+        accountBorrowPoints[borrowCurrent.owner] = TenMath.safeSub(accountBorrowPoints[borrowCurrent.owner], borrowCurrent.bPoints);
 
         // booking
-        borrowTotal = borrowTotal.sub(repayAmount);
+        borrowTotal = TenMath.safeSub(borrowTotal, repayAmount);
+        borrowTotalPoints = TenMath.safeSub(borrowTotalPoints, borrowCurrent.bPoints);
+        borrowTotalAmount = TenMath.safeSub(borrowTotalAmount, repayAmount);
+        borrowTotalAmountWithPlatform = TenMath.safeSub(borrowTotalAmountWithPlatform, repayAmount);
+        borrowCurrent.amount = 0;
+        borrowCurrent.bPoints = 0;
         lastBorrowCurrent = call_borrowBalanceCurrent_this();
     }
 
@@ -497,9 +467,9 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
             if(lastBorrowCurrentNow >= lastBorrowCurrent) {
                 // booking
                 uint256 newDebtAmount1 = lastBorrowCurrentNow.sub(lastBorrowCurrent);
-                uint256 newDebtAmount2 = newDebtAmount1.mul(getBorrowFactor().sub(1e9)).div(1e9);
-                accDebtPerBorrow = accDebtPerBorrow.add(newDebtAmount1.mul(1e18).div(borrowTotal).add(1));
-                accDebtPlatformPerBorrow = accDebtPlatformPerBorrow.add(newDebtAmount2.mul(1e18).div(borrowTotal).add(1));
+                uint256 newDebtAmount2 = newDebtAmount1.mul(getBorrowFactor()).div(1e9);
+                borrowTotalAmount = borrowTotalAmount.add(newDebtAmount1);
+                borrowTotalAmountWithPlatform = borrowTotalAmountWithPlatform.add(newDebtAmount2);
             }
             lastBorrowCurrent = lastBorrowCurrentNow;
         }
@@ -524,8 +494,8 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, IAc
             accDebtPerSupply = accDebtPerSupply.sub(accDebtReduce);
         }
 
-        if(actionPool != address(0)) {
-            IActionPools(actionPool).onAcionUpdate(CTOKEN_BORROW);
+        if(compActionPool != address(0)) {
+            IActionPools(compActionPool).onAcionUpdate(CTOKEN_BORROW);
         }
     }
 

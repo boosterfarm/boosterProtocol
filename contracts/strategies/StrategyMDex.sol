@@ -13,7 +13,7 @@ import "../../interfaces/IMdexFactory.sol";
 import "../interfaces/ISafeBox.sol";
 import "../interfaces/IStrategyLink.sol";
 import '../interfaces/IActionPools.sol';
-import '../interfaces/IActionTrigger.sol';
+import '../interfaces/ICompActionTrigger.sol';
 import "../interfaces/ITenBankHall.sol";
 import "../interfaces/IBuyback.sol";
 import "../utils/TenMath.sol";
@@ -21,7 +21,7 @@ import "./StrategyMDexPools.sol";
 import "./StrategyUtils.sol";
 
 // Farming and Booking
-contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigger {
+contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionTrigger {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -56,12 +56,12 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
 
     StrategyUtils public utils;            // some functions 
     address public override bank;          // address of bank
-    IActionPools public actionPool;        // address of action pool
+    IActionPools public compActionPool;    // address of comp action pool
     IBuyback public buyback;
  
     event AddPool(uint256 _pid, uint256 _poolId, address lpToken, address _baseToken);
     event SetSConfig(address _old, address _new);
-    event SetAcionPool(address _old, address _new);
+    event SetCompAcionPool(address _old, address _new);
     event SetMiniRewardAmount(uint256 _pid, uint256 _miniRewardAmount);
 
     modifier onlyBank() {
@@ -83,16 +83,17 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     }
 
     // for action pool, farming rewards
-    function getATPoolInfo(uint256 _pid) external override view 
-        returns (address lpToken, uint256 allocRate, uint256 totalAmount) {
+    function getCATPoolInfo(uint256 _pid) external override view 
+        returns (address lpToken, uint256 allocRate, uint256 totalPoints, uint256 totalAmount) {
             lpToken = address(poolInfo[_pid].lpToken);
             allocRate = 5e8;
-            totalAmount = poolInfo[_pid].totalLPAmount;
+            totalPoints = poolInfo[_pid].totalPoints;
+            totalAmount = poolInfo[_pid].totalLPReinvest;
     }
 
-    function getATUserAmount(uint256 _pid, address _account) external override view 
-        returns (uint256 acctAmount) {
-            acctAmount = userInfo[_pid][_account].lpAmount;
+    function getCATUserAmount(uint256 _pid, address _account) external override view 
+        returns (uint256 lpPoints) {
+            lpPoints = userInfo[_pid][_account].lpPoints;
     }
 
     function getPoolInfo(uint256 _pid) external override view 
@@ -173,9 +174,9 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         poolTokenApprove(address(pool.lpToken), uint256(-1));
     }
     
-    function setAcionPool(address _actionPool) external onlyOwner {
-        emit SetAcionPool(address(actionPool), _actionPool);
-        actionPool = IActionPools(_actionPool);
+    function setCompAcionPool(address _compactionPool) external onlyOwner {
+        emit SetCompAcionPool(address(compActionPool), _compactionPool);
+        compActionPool = IActionPools(_compactionPool);
     }
 
     function setSConfig(address _sconfig) external onlyOwner {
@@ -235,13 +236,13 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     function updatePool(uint256 _pid) public override {
         PoolInfo storage pool = poolInfo[_pid];
         if(pool.lastRewardsBlock == block.number || 
-            pool.totalLPAmount.add(pool.totalLPReinvest) == 0) {
+            pool.totalLPReinvest <= 0) {
             pool.lastRewardsBlock = block.number;
             return ;
         }
 
-        if(address(actionPool) != address(0)) {
-            actionPool.onAcionUpdate(_pid);
+        if(address(compActionPool) != address(0)) {
+            compActionPool.onAcionUpdate(_pid);
         }
 
         pool.lastRewardsBlock = block.number;
@@ -344,7 +345,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         utils.transferFromAllToken(address(this), _account, token0, token1);
 
         // booking
-        uint256 lpAmountOld = user.lpAmount;
+        uint256 lpPointsOld = user.lpPoints;
         uint256 addPoint = lpAmount;
         if(poolInfo[_pid].totalLPReinvest > 0) {
             addPoint = lpAmount.mul(poolInfo[_pid].totalPoints).div(poolInfo[_pid].totalLPReinvest);
@@ -363,8 +364,8 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
                
         emit StrategyDeposit(address(this), _pid, _account, lpAmount, _bAmount);
 
-        if(address(actionPool) != address(0) && lpAmount > 0) {
-            actionPool.onAcionIn(_pid, _account, lpAmountOld, user.lpAmount);
+        if(address(compActionPool) != address(0) && addPoint > 0) {
+            compActionPool.onAcionIn(_pid, _account, lpPointsOld, user.lpPoints);
         }
     }
 
@@ -499,22 +500,22 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
             // withdraw fee
             utils.makeWithdrawRewardFee(_pid, borrowRate, rewardsRate);
             // repay
-            repayBorrow(_pid, _account, _rate);
+            repayBorrow(_pid, _account, _rate, true);
         }
 
         // booking
+        uint256 lpPointsOld = user.lpPoints;
         user.lpPoints = TenMath.safeSub(user.lpPoints, removedPoint);
         poolInfo[_pid].totalPoints = TenMath.safeSub(poolInfo[_pid].totalPoints, removedPoint);
         poolInfo[_pid].totalLPReinvest = TenMath.safeSub(poolInfo[_pid].totalLPReinvest, withdrawLPTokenAmount);
 
-        uint256 lpAmountOld = user.lpAmount;
         user.lpAmount = TenMath.safeSub(user.lpAmount, removedLPAmount);
         poolInfo[_pid].totalLPAmount = TenMath.safeSub(poolInfo[_pid].totalLPAmount, removedLPAmount);
 
         emit StrategyWithdraw(address(this), _pid, _account, withdrawLPTokenAmount);
 
-        if(address(actionPool) != address(0) && removedLPAmount > 0) {
-            actionPool.onAcionOut(_pid, _account, lpAmountOld, user.lpAmount);
+        if(address(compActionPool) != address(0) && removedPoint > 0) {
+            compActionPool.onAcionOut(_pid, _account, lpPointsOld, user.lpPoints);
         }
     }
 
@@ -533,6 +534,8 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         uint256 withdrawBaseAmount = utils.getLPToken2TokenAmount(address(poolInfo[_pid].lpToken), poolInfo[_pid].baseToken, withdrawLPTokenAmount);
         if (withdrawBaseAmount > 0) {
             borrowRate = borrowAmount.mul(1e9).div(withdrawBaseAmount);
+        } else {
+            borrowRate = uint256(1e4).mul(1e9);
         }
     }
 
@@ -545,13 +548,13 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         router.removeLiquidity(token0, token1, _withdrawLPTokenAmount, 0, 0, address(this), block.timestamp.add(60));
     }
 
-    function repayBorrow(uint256 _pid, address _account, uint256 _rate) public override onlyBank {
-        utils.makeRepay(_pid, userInfo[_pid][_account].borrowFrom, _account, _rate);
+    function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _force) public override onlyBank {
+        utils.makeRepay(_pid, userInfo[_pid][_account].borrowFrom, _account, _rate, _force);
         if(getBorrowAmount(_pid, _account) == 0) {
             userInfo[_pid][_account].borrowFrom = address(0);
             userInfo[_pid][_account].bid = 0;
         }
-        if(_rate == 1e9) {
+        if(_rate == 1e9 && _force) {
             require(getBorrowAmount(_pid, _account) == 0, 'repay not clear');
         }
     }
@@ -561,6 +564,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
     }
 
     function _emergencyWithdraw(uint256 _pid, address _account) internal {
+        _account;
         UserInfo storage user = userInfo[_pid][_account];
 
         // total of deposit and reinvest
@@ -575,7 +579,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         user.lpAmount = 0;
 
         makeWithdrawRemoveLiquidity(_pid, withdrawLPTokenAmount);
-        repayBorrow(_pid, _account, 1e9);
+        repayBorrow(_pid, _account, 1e9, true);
 
         utils.transferFromAllToken(address(this), _account, 
                         poolInfo[_pid].collateralToken[0], 
@@ -601,7 +605,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
             return ;
         }
 
-        uint256 lpAmountOld = user.lpAmount;
+        uint256 lpPointsOld = user.lpPoints;
         uint256 withdrawLPTokenAmount = pendingLPAmount(_pid, _account);
         // booking
         pool.totalLPAmount = TenMath.safeSub(pool.totalLPAmount, user.lpAmount);
@@ -612,28 +616,32 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, IActionTrigg
         user.lpAmount = 0;
 
         // withdraw and remove liquidity
-        makeWithdrawRemoveLiquidity(_pid, withdrawLPTokenAmount);
+        if( withdrawLPTokenAmount > 0) {
+            makeWithdrawRemoveLiquidity(_pid, withdrawLPTokenAmount);
+        }
 
         emit StrategyLiquidation(address(this), _pid, _account, withdrawLPTokenAmount);
 
         // repay borrow
-        repayBorrow(_pid, _account, 1e9);
+        repayBorrow(_pid, _account, 1e9, false);
 
         // swap all token to basetoken
         address tokensell = pool.baseToken == pool.collateralToken[0] ? 
                             pool.collateralToken[1] : pool.collateralToken[0];
-        uint256 amountsell = IERC20(tokensell).balanceOf(tokensell);
-        utils.getTokenIn(tokensell, amountsell, pool.baseToken);
+        uint256 amountsell = IERC20(tokensell).balanceOf(address(this));
+        if(amountsell > 0) {
+            utils.getTokenIn(tokensell, amountsell, pool.baseToken);
+        }
 
         // liquidation fee
         utils.makeLiquidationFee(_pid, pool.baseToken, borrowAmount);
 
         utils.transferFromAllToken(address(this), _hunter, 
-                            pool.collateralToken[0], 
-                            pool.collateralToken[1]);
+                                pool.collateralToken[0], 
+                                pool.collateralToken[1]);
 
-        if(address(actionPool) != address(0) && lpAmountOld > 0) {
-            actionPool.onAcionOut(_pid, _account, lpAmountOld, 0);
+        if(address(compActionPool) != address(0) && lpPointsOld > 0) {
+            compActionPool.onAcionOut(_pid, _account, lpPointsOld, 0);
         }
     }
 

@@ -92,9 +92,10 @@ contract SafeBoxCTokenImplETH is ERC20 {
         return ctokenWithdraw(_lpAmount);
     }
 
-    function ctokenBorrow(uint256 _value) internal virtual {
+    function ctokenBorrow(uint256 _value) internal virtual returns (uint256 value) {
         require(eToken.borrow(_value) == 0, 'borrow error');
         iWHT.deposit{value:_value}();
+        value = _value;
     }
 
     function ctokenRepayBorrow(uint256 _value) internal virtual {

@@ -20,7 +20,7 @@ interface ISafeBox {
     function getBorrowId(address _strategy, uint256 _pid, address _account, bool _add) external returns (uint256 borrowId);
     function getDepositTotal() external view returns (uint256);
     function getBorrowTotal() external view returns (uint256);
-    function getBorrowAmount(address _account) external view returns (uint256 value); 
+    // function getBorrowAmount(address _account) external view returns (uint256 value); 
     function getBaseTokenPerLPToken() external view returns (uint256);
 
     function deposit(uint256 _value) external;

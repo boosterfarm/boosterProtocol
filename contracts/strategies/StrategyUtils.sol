@@ -197,7 +197,7 @@ contract StrategyUtils is Ownable {
         bok = (_borrowRate > liquRate);
     }
 
-    function makeRepay(uint256 _pid, address _borrowFrom, address _account, uint256 _rate)
+    function makeRepay(uint256 _pid, address _borrowFrom, address _account, uint256 _rate, bool _force)
             external onlyOwner {
         if(_borrowFrom == address(0)) {
             return ;
@@ -220,19 +220,24 @@ contract StrategyUtils is Ownable {
         address token1 = collateralToken[1];
         address borrowToken = ISafeBox(_borrowFrom).token();
         uint256 borrowTokenAmount = IERC20(borrowToken).balanceOf(strategy);
-        
+
         if( borrowTokenAmount < repayAmount ) {
             // insufficient, sell off all the currency held to repay the debt
             address holdToken = borrowToken == token0 ? token1 : token0;
             uint256 amountsell = getAmountOut(holdToken, borrowToken, repayAmount.sub(borrowTokenAmount));
             uint256 holdTokenAmount = IERC20(holdToken).balanceOf(strategy);
-            require(holdTokenAmount >= amountsell, 'debt explosion');
+            if(_force) {
+                require(holdTokenAmount >= amountsell, 'debt explosion');
+            }
+            amountsell = TenMath.min(amountsell, holdTokenAmount);
             if(amountsell > 0) {
                 IERC20(holdToken).safeTransferFrom(address(strategy), address(this), amountsell);
                 getTokenInTo(address(this), holdToken, amountsell, borrowToken);
             }
             IERC20(borrowToken).safeTransferFrom(address(strategy), address(this), borrowTokenAmount);
-            uint256 amount1 = IERC20(borrowToken).balanceOf(address(this));
+            if(!_force) {
+                repayAmount = IERC20(borrowToken).balanceOf(address(this));
+            }
         } else {
             IERC20(borrowToken).safeTransferFrom(address(strategy), address(this), repayAmount);
         }
@@ -240,6 +245,7 @@ contract StrategyUtils is Ownable {
         IERC20(borrowToken).safeTransfer(address(_borrowFrom), repayAmount);
         ISafeBox(_borrowFrom).repay(bid, repayAmount);
         uint256 free = IERC20(borrowToken).balanceOf(address(this));
+
         if(free > 0) {
             IERC20(borrowToken).safeTransfer(address(strategy), free);
         }
