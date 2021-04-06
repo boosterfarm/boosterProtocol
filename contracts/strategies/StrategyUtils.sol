@@ -167,9 +167,9 @@ contract StrategyUtils is Ownable {
         uint256 totalAmount = IStrategyLink(strategy).getDepositAmount(_pid, _account);
         uint256 borrowAmount = IStrategyLink(strategy).getBorrowAmountInBaseToken(_pid, _account);
         totalAmount = totalAmount.add(holdAmount);
-
+        uint256 borrowAmountNew = getAmountIn(ISafeBox(_borrowFrom).token(), _borrowAmount, baseToken);
         uint256 borrowFactor = sconfig.getBorrowFactor(strategy, _pid);
-        bok = borrowAmount.add(_borrowAmount) <= totalAmount.mul(borrowFactor).div(1e9);
+        bok = borrowAmount.add(borrowAmountNew) <= totalAmount.mul(borrowFactor).div(1e9);
     }
 
     function checkBorrowGetHoldAmount(address _strategy, uint256 _pid, address baseToken) 

@@ -23,8 +23,8 @@ contract SafeBoxCTokenImpl is ERC20 {
     constructor (
         address _cToken
     ) public 
-        ERC20(string(abi.encodePacked("bo-", ERC20(IErc20Interface(_cToken).underlying()).name())),
-            string(abi.encodePacked("bo", ERC20(IErc20Interface(_cToken).underlying()).symbol()))) {
+        ERC20(string(abi.encodePacked("bof-", ERC20(IErc20Interface(_cToken).underlying()).name())),
+            string(abi.encodePacked("bof", ERC20(IErc20Interface(_cToken).underlying()).symbol()))) {
         _setupDecimals(ERC20(_cToken).decimals());
         eToken = IErc20Interface(_cToken);
         cToken = ICTokenInterface(_cToken);

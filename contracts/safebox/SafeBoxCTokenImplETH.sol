@@ -26,8 +26,8 @@ contract SafeBoxCTokenImplETH is ERC20 {
     constructor (
         address _cToken
     ) public 
-        ERC20(string(abi.encodePacked("bo-", iWHT.name())),
-            string(abi.encodePacked("bo", iWHT.symbol()))) {
+        ERC20(string(abi.encodePacked("bof-", iWHT.name())),
+            string(abi.encodePacked("bof", iWHT.symbol()))) {
         _setupDecimals(ERC20(_cToken).decimals());
         eToken = IErc20InterfaceETH(_cToken);
         cToken = ICTokenInterface(_cToken);
