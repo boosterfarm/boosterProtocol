@@ -368,6 +368,9 @@ contract StrategyUtils is Ownable {
         if(_tokenIn == _tokenOut) {
             return _amountOut;
         }
+        if(_amountOut == 0) {
+            return 0;
+        }
         address[] memory path = new address[](2);
         path[0] = _tokenIn;
         path[1] = _tokenOut;
@@ -383,6 +386,9 @@ contract StrategyUtils is Ownable {
         if(_tokenIn == _tokenOut) {
             return _amountIn;
         }
+        if(_amountIn == 0) {
+            return 0;
+        }
         address[] memory path = new address[](2);
         path[0] = _tokenIn;
         path[1] = _tokenOut;
@@ -393,13 +399,13 @@ contract StrategyUtils is Ownable {
         return result[result.length-1];
     }
     
-    function getTokenOut(address _tokenIn, address _tokenOut, uint256 _amountOut) 
-            public virtual onlyOwner returns (uint256 value) {
-        uint256 amountIn = getAmountOut(_tokenIn, _tokenOut, _amountOut);
-        IERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
-        value = getTokenInTo(msg.sender, _tokenIn, amountIn, _tokenOut);
-        transferFromAllToken(address(this), msg.sender, _tokenIn, _tokenOut);
-    }
+    // function getTokenOut(address _tokenIn, address _tokenOut, uint256 _amountOut) 
+    //         public virtual onlyOwner returns (uint256 value) {
+    //     uint256 amountIn = getAmountOut(_tokenIn, _tokenOut, _amountOut);
+    //     IERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+    //     value = getTokenInTo(msg.sender, _tokenIn, amountIn, _tokenOut);
+    //     transferFromAllToken(address(this), msg.sender, _tokenIn, _tokenOut);
+    // }
     
     function getTokenIn(address _tokenIn, uint256 _amountIn, address _tokenOut) 
             public virtual onlyOwner returns (uint256 value) {
@@ -413,6 +419,9 @@ contract StrategyUtils is Ownable {
         if(_tokenIn == _tokenOut) {
             value = _amountIn;
             return value;
+        }
+        if(_amountIn <= 0) {
+            return 0;
         }
         address[] memory path = new address[](2);
         path[0] = _tokenIn;

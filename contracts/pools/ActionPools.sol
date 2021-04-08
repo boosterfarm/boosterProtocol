@@ -145,11 +145,11 @@ contract ActionPools is Ownable, IActionPools {
     function getBlocksReward(uint256 _pid, uint256 _from, uint256 _to) public view returns (uint256 value) {
         require(_from <= _to, 'getBlocksReward error');
         PoolInfo storage pool = poolInfo[_pid];
-        uint256 balance = pool.rewardToken.balanceOf(address(this));
-        value = pool.rewardMaxPerBlock.mul(_to.sub(_from));
-        if( address(pool.rewardToken) == address(booToken)) {
+        if(address(pool.rewardToken) == address(booToken)) {
             return value;
         }
+        uint256 balance = pool.rewardToken.balanceOf(address(this));
+        value = pool.rewardMaxPerBlock.mul(_to.sub(_from));
         if( pool.lastRewardClosed > balance 
             || pool.lastRewardClosed > pool.poolTotalRewards) {
                 // require(pool.lastRewardClosed > balance, 'rewardClosed > balance');
@@ -376,6 +376,7 @@ contract ActionPools is Ownable, IActionPools {
         value = _amount > balance ? balance : _amount;
         if ( value > 0 ) {
             _token.transfer(_to, value);
+            value = _token.balanceOf(address(this)).sub(balance);
         }
     }
 }

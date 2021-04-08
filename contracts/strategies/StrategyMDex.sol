@@ -469,7 +469,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         _withdraw(_pid, _account, _rate, _desirePrice, _slippage);
         address tokensell = _toToken == token0 ? token1 : token0;
         uint256 amountsell = IERC20(tokensell).balanceOf(address(this));
-        if(amountsell > 0) {
+        if(amountsell > 0 && utils.getAmountIn(tokensell, amountsell, _toToken) > 0) {
             utils.getTokenIn(tokensell, amountsell, _toToken);
         }
         utils.transferFromAllToken(address(this), _account, token0, token1);

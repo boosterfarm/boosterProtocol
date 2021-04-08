@@ -399,6 +399,7 @@ contract ActionCompPools is Ownable, IActionPools {
         value = _amount > balance ? balance : _amount;
         if ( value > 0 ) {
             _token.transfer(_to, value);
+            value = _token.balanceOf(address(this)).sub(balance);
         }
     }
 }
