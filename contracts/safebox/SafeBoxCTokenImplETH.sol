@@ -89,7 +89,7 @@ contract SafeBoxCTokenImplETH is ERC20 {
     }
 
     function ctokenClaim(uint256 _lpAmount) internal virtual returns (uint256 value) {
-        return ctokenWithdraw(_lpAmount);
+        value = ctokenWithdraw(_lpAmount);
     }
 
     function ctokenBorrow(uint256 _value) internal virtual returns (uint256 value) {

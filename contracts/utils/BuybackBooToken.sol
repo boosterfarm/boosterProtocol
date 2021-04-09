@@ -23,6 +23,8 @@ contract BuybackBooToken is IBuyback {
     mapping(address => uint256) public burnSource;
     mapping(address => uint256) public burnAmount;
 
+    event Buyback(address _fToken, uint256 _fAmount, address _tToken, uint256 _tAmount);
+
     constructor(address _booToken) public {
         booToken = _booToken;
     }
@@ -75,6 +77,8 @@ contract BuybackBooToken is IBuyback {
         burnSource[_token] = burnSource[_token].add(_value);
         burnAmount[_token] = burnAmount[_token].add(valueOut);
         IERC20(booToken).transfer(lockedAddr, valueOut);
+
+        emit Buyback(_token, _value, booToken, valueOut);
     }
 
     function makeMdexExtraReward() external virtual returns (uint256 rewards) {

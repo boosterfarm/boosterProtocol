@@ -57,8 +57,10 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
     address public compActionPool;          // action pool for borrow rewards
     uint256 public constant CTOKEN_BORROW = 1;  // action pool borrow action id
 
-    uint256 public optimalUtilizationRate = 6e8;  // Lending rate, ideal 1e9, default = 60%
-    uint256 public stableRateSlope = 2e9;         // loan interest times in max borrow rate
+    uint256 public optimalUtilizationRate1 = 6e8;  // Lending rate, ideal 1e9, default = 60%
+    uint256 public optimalUtilizationRate2 = 7.5e8;  // Lending rate, ideal 1e9, default = 75%
+    uint256 public stableRateSlope1 = 2e9;         // loan interest times in max borrow rate
+    uint256 public stableRateSlope2 = 20e9;         // loan interest times in max borrow rate
 
     address public iBuyback;
 
@@ -69,8 +71,8 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
     event SetBlacklist(address indexed _account, bool _newset);
     event SetBuyback(address indexed buyback);
     event SetBorrowLimitRate(uint256 oldRate, uint256 newRate);
-    event SetOptimalUtilizationRate(uint256 oldV, uint256 newV);
-    event SetStableRateSlope(uint256 oldV, uint256 newV);
+    event SetOptimalUtilizationRate(uint256 oldV1, uint256 oldV2, uint256 newV1, uint256 newV2);
+    event SetStableRateSlope(uint256 oldV1, uint256 oldV2, uint256 newV1, uint256 newV2);
 
     constructor (
         address _bank,
@@ -142,16 +144,21 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
     }
     
     // for platform borrow interest rate
-    function setOptimalUtilizationRate(uint256 _optimalUtilizationRate) external onlyOwner {
-        require(_optimalUtilizationRate <= 1e9, 'rate too high');
-        emit SetOptimalUtilizationRate(optimalUtilizationRate, _optimalUtilizationRate);
-        optimalUtilizationRate = _optimalUtilizationRate;
+    function setOptimalUtilizationRate(uint256 _optimalUtilizationRate1, uint256 _optimalUtilizationRate2) external onlyOwner {
+        require(_optimalUtilizationRate1 <= 1e9 && 
+                _optimalUtilizationRate2 <= 1e9 && 
+                _optimalUtilizationRate1 < _optimalUtilizationRate2
+                , 'rate set error');
+        emit SetOptimalUtilizationRate(optimalUtilizationRate1, optimalUtilizationRate2, _optimalUtilizationRate1, _optimalUtilizationRate2);
+        optimalUtilizationRate1 = _optimalUtilizationRate1;
+        optimalUtilizationRate2 = _optimalUtilizationRate2;
     }
 
-    function setStableRateSlope(uint256 _stableRateSlope) external onlyOwner {
-        require(_stableRateSlope <= 1e4*1e9, 'rate too high');
-        emit SetStableRateSlope(stableRateSlope, _stableRateSlope);
-        stableRateSlope = _stableRateSlope;
+    function setStableRateSlope(uint256 _stableRateSlope1, uint256 _stableRateSlope2) external onlyOwner {
+        require(_stableRateSlope1 <= 1e4*1e9 && _stableRateSlope2 <= 1e4*1e9, 'rate set error');
+        emit SetStableRateSlope(stableRateSlope1, stableRateSlope2, _stableRateSlope1, _stableRateSlope2);
+        stableRateSlope1 = _stableRateSlope1;
+        stableRateSlope2 = _stableRateSlope2;
     }
 
     function supplyRatePerBlock() external override view returns (uint256) {
@@ -183,18 +190,25 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
         return _getBorrowFactor(call_balanceOfBaseToken_this());
     }
 
-    function _getBorrowFactor(uint256 supplyAmount) public virtual view returns (uint256) {
+    function _getBorrowFactor(uint256 supplyAmount) internal virtual view returns (uint256 value) {
         if(supplyAmount <= 0) {
             return uint256(1e9);
         }
         uint256 borrowRate = getBorrowTotal().mul(1e9).div(supplyAmount);
-        if(borrowRate <= optimalUtilizationRate) {
+        if(borrowRate <= optimalUtilizationRate1) {
             return uint256(1e9);
         }
-        return borrowRate.sub(optimalUtilizationRate)
-                .mul(stableRateSlope)
-                .div(uint256(1e9))
-                .add(uint256(1e9));
+        if(borrowRate <= optimalUtilizationRate2) {
+            value = borrowRate.sub(optimalUtilizationRate1)
+                    .mul(stableRateSlope1)
+                    .div(uint256(1e9))
+                    .add(uint256(1e9));
+        } else {
+            value = borrowRate.sub(optimalUtilizationRate2)
+                    .mul(stableRateSlope2)
+                    .div(uint256(1e9))
+                    .add(uint256(1e9));
+        }
     }
 
     function getBorrowTotal() public virtual override view returns (uint256) {
@@ -460,7 +474,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
         _update();
     }
 
-    function _update() public {
+    function _update() internal {
         // update borrow interest
         uint256 lastBorrowCurrentNow = call_borrowBalanceCurrent_this();
         if(lastBorrowCurrentNow != lastBorrowCurrent && borrowTotal > 0) {

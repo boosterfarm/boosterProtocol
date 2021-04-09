@@ -9,13 +9,16 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 import '../interfaces/IActionTrigger.sol';
 import '../interfaces/IActionPools.sol';
+import '../interfaces/IClaimFromBank.sol';
+
+import "../utils/TenMath.sol";
 import '../BOOToken.sol';
 // Note that it's ownable and the owner wields tremendous power. The ownership
 // will be transferred to a governance smart contract once Token is sufficiently
 // distributed and the community can show to govern itself.
 //
 // Have fun reading it. Hopefully it's bug-free. God bless.
-contract ActionPools is Ownable, IActionPools {
+contract ActionPools is Ownable, IActionPools, IClaimFromBank {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -55,6 +58,8 @@ contract ActionPools is Ownable, IActionPools {
     BOOToken public booToken;
     // mint for boodev, while mint bootoken, mint a part for dev
     address public boodev;
+    // allow bank proxy claim
+    address public bank;
 
     event ActionDeposit(address indexed user, uint256 indexed pid, uint256 fromAmount, uint256 toAmount);
     event ActionWithdraw(address indexed user, uint256 indexed pid, uint256 fromAmount, uint256 toAmount);
@@ -65,7 +70,8 @@ contract ActionPools is Ownable, IActionPools {
     event SetRewardMaxPerBlock(uint256 indexed _pid, uint256 _maxPerBlock);
     event SetRewardRestricted(address _hacker, uint256 _rate);
 
-    constructor (address _booToken, address _boodev) public {
+    constructor (address _bank, address _booToken, address _boodev) public {
+        bank = _bank;
         booToken = BOOToken(_booToken);
         require(booToken.totalSupply() >= 0, 'booToken');
         boodev = _boodev;
@@ -213,9 +219,12 @@ contract ActionPools is Ownable, IActionPools {
 
         uint256 poolReward = getBlocksReward(_pid, pool.lastRewardBlock, block.number);
         if (poolReward > 0) {
-            if( address(pool.rewardToken) == address(booToken)) {
+            address rewardToken = address(pool.rewardToken);
+            if( rewardToken == address(booToken)) {
                 booToken.mint(address(this), poolReward);
                 booToken.mint(boodev, poolReward.div(8));   // mint for dev
+                pool.poolTotalRewards = pool.poolTotalRewards.add(poolReward);
+                tokenTotalRewards[rewardToken] = tokenTotalRewards[rewardToken].add(poolReward);
             }
             pool.lastRewardClosed = pool.lastRewardClosed.add(poolReward);
             pool.accRewardPerShare = pool.accRewardPerShare.add(poolReward.mul(1e18).div(poolTotalAmount));
@@ -327,6 +336,13 @@ contract ActionPools is Ownable, IActionPools {
         }
     }
 
+    function claimFromBank(address _account, uint256[] memory _pidlist) external override returns (uint256 value) {
+        require(bank==msg.sender, 'only call from bank');
+        for (uint256 piid = 0; piid < _pidlist.length; ++piid) {
+            value = value.add(_claim(_pidlist[piid], _account));
+        }       
+    }
+
     function claim(uint256 _pid) public returns (uint256 value) {
         return _claim(_pid, msg.sender);
     }
@@ -376,7 +392,7 @@ contract ActionPools is Ownable, IActionPools {
         value = _amount > balance ? balance : _amount;
         if ( value > 0 ) {
             _token.transfer(_to, value);
-            value = _token.balanceOf(address(this)).sub(balance);
+            value =  TenMath.safeSub(balance, _token.balanceOf(address(this)));
         }
     }
 }

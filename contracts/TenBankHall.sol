@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import './interfaces/IStrategyLink.sol';
 import './interfaces/ITenBankHall.sol';
 import './interfaces/ISafeBox.sol';
+import './interfaces/IClaimFromBank.sol';
 
 // TenBank bank
 contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
@@ -31,6 +32,9 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
     // strategyinfo manager
     StrategyInfo[] public strategyInfo;
     mapping(address => mapping(uint256 => uint256)) public strategyIndex; // strategy + pid => strategyInfo index
+
+    // actionpools claim
+    IClaimFromBank[] public poolClaim;
 
     // blacklist
     mapping(address => bool) public blacklist;
@@ -54,6 +58,14 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
     function setEmergencyEnabled(uint256 _sid, bool _newset) external onlyOwner {
         emergencyEnabled[_sid] = _newset;
         emit SetEmergencyEnabled(_sid, _newset);
+    }
+
+    function claimLength() external view returns (uint256) {
+        return poolClaim.length;
+    }
+    
+    function addClaimPool(address _poolClaim) external onlyOwner {
+        poolClaim.push(IClaimFromBank(_poolClaim));
     }
 
     // box manager
@@ -142,6 +154,28 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
 
     function withdraw(uint256 _sid, uint256 _rate, address _toToken, uint256 _desirePrice, uint256 _slippage) external nonReentrant {
         return strategyInfo[_sid].iLink.withdraw(strategyInfo[_sid].pid, msg.sender, _rate, _toToken, _desirePrice, _slippage);
+    }
+
+    function withdrawLPTokenAndClaim(uint256 _sid, uint256 _rate, 
+                                    uint256 _desirePrice, uint256 _slippage, 
+                                    uint256 _poolClaimId, uint256[] memory _pidlist) external nonReentrant {
+        strategyInfo[_sid].iLink.withdrawLPToken(strategyInfo[_sid].pid, msg.sender, _rate, _desirePrice, _slippage);
+        if(_pidlist.length > 0) {
+            poolClaim[_poolClaimId].claimFromBank(msg.sender, _pidlist);
+        }
+    }
+
+    function withdrawAndClaim(uint256 _sid, uint256 _rate, address _toToken, 
+                                uint256 _desirePrice, uint256 _slippage,
+                                uint256 _poolClaimId, uint256[] memory _pidlist) external nonReentrant {
+        strategyInfo[_sid].iLink.withdraw(strategyInfo[_sid].pid, msg.sender, _rate, _toToken, _desirePrice, _slippage);
+        if(_pidlist.length > 0) {
+            poolClaim[_poolClaimId].claimFromBank(msg.sender, _pidlist);
+        }
+    }
+
+    function claim(uint256 _poolClaimId, uint256[] memory _pidlist) external nonReentrant {
+        poolClaim[_poolClaimId].claimFromBank(msg.sender, _pidlist);
     }
 
     function emergencyWithdraw(uint256 _sid) external nonReentrant {
