@@ -43,7 +43,7 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, ICompActi
     uint256 public borrowTotalAmount;          // total of user borrows and interests
     uint256 public borrowTotal;                // total of user borrows
 
-    uint256 public borrowLimitRate = 7e8;    // borrow limit,  max = borrowTotal * borrowLimitRate / 1e9, default=80%
+    uint256 public borrowLimitRate = 7.5e8;    // borrow limit,  max = borrowTotal * borrowLimitRate / 1e9, default=75%
     uint256 public borrowMinAmount;          // borrow min amount limit
 
     mapping(address => bool) public blacklist;  // deposit blacklist
@@ -57,10 +57,10 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, ICompActi
     address public compActionPool;          // action pool for borrow rewards
     uint256 public constant CTOKEN_BORROW = 1;  // action pool borrow action id
 
-    uint256 public optimalUtilizationRate1 = 6e8;  // Lending rate, ideal 1e9, default = 60%
-    uint256 public optimalUtilizationRate2 = 7.5e8;  // Lending rate, ideal 1e9, default = 75%
-    uint256 public stableRateSlope1 = 2e9;         // loan interest times in max borrow rate
-    uint256 public stableRateSlope2 = 20e9;         // loan interest times in max borrow rate
+    uint256 public optimalUtilizationRate1 = 6e8;  // Lending rate 1, ideal 1e9, default = 60%
+    uint256 public optimalUtilizationRate2 = 7e8;  // Lending rate 2, ideal 1e9, default = 70%
+    uint256 public stableRateSlope1 = 3e9;         // loan interest times in max borrow rate 1
+    uint256 public stableRateSlope2 = 55e9;        // loan interest times in max borrow rate 2
 
     address public iBuyback;
 
@@ -155,7 +155,8 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, ICompActi
     }
 
     function setStableRateSlope(uint256 _stableRateSlope1, uint256 _stableRateSlope2) external onlyOwner {
-        require(_stableRateSlope1 <= 1e4*1e9 && _stableRateSlope2 <= 1e4*1e9, 'rate set error');
+        require(_stableRateSlope1 <= 1e4*1e9 && _stableRateSlope1 >= 1e9 &&
+                 _stableRateSlope2 <= 1e4*1e9 && _stableRateSlope2 >= 1e9 , 'rate set error');
         emit SetStableRateSlope(stableRateSlope1, stableRateSlope2, _stableRateSlope1, _stableRateSlope2);
         stableRateSlope1 = _stableRateSlope1;
         stableRateSlope2 = _stableRateSlope2;
@@ -198,17 +199,17 @@ contract SafeBoxCToken is SafeBoxCTokenImpl, ReentrancyGuard, Ownable, ICompActi
         if(borrowRate <= optimalUtilizationRate1) {
             return uint256(1e9);
         }
+        uint256 value1 = stableRateSlope1.sub(1e9).mul(borrowRate.sub(optimalUtilizationRate1))
+                    .div(uint256(1e9).sub(optimalUtilizationRate1))
+                    .add(uint256(1e9));
         if(borrowRate <= optimalUtilizationRate2) {
-            value = borrowRate.sub(optimalUtilizationRate1)
-                    .mul(stableRateSlope1)
-                    .div(uint256(1e9))
-                    .add(uint256(1e9));
-        } else {
-            value = borrowRate.sub(optimalUtilizationRate2)
-                    .mul(stableRateSlope2)
-                    .div(uint256(1e9))
-                    .add(uint256(1e9));
+            value = value1;
+            return value;
         }
+        uint256 value2 = stableRateSlope2.sub(1e9).mul(borrowRate.sub(optimalUtilizationRate2))
+                    .div(uint256(1e9).sub(optimalUtilizationRate2))
+                    .add(uint256(1e9));
+        value = value2 > value1 ? value2 : value1;
     }
 
     function getBorrowTotal() public virtual override view returns (uint256) {

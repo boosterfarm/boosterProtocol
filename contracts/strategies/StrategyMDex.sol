@@ -235,16 +235,16 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
     // update pools
     function updatePool(uint256 _pid) public override {
         PoolInfo storage pool = poolInfo[_pid];
-        if(pool.lastRewardsBlock == block.number || 
-            pool.totalLPReinvest <= 0) {
-            pool.lastRewardsBlock = block.number;
-            return ;
-        }
 
         if(address(compActionPool) != address(0)) {
             compActionPool.onAcionUpdate(_pid);
         }
 
+        if(pool.lastRewardsBlock == block.number || 
+            pool.totalLPReinvest <= 0) {
+            pool.lastRewardsBlock = block.number;
+            return ;
+        }
         pool.lastRewardsBlock = block.number;
 
         address token0 = pool.collateralToken[0];
