@@ -36,7 +36,7 @@ interface IStrategyLink {
     function withdraw(uint256 _pid, address _account, uint256 _rate, address _toToken, uint256 _desirePrice, uint256 _slippage) external;
     function withdrawLPToken(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) external;
 
-    function emergencyWithdraw(uint256 _pid, address _account) external;
+    function emergencyWithdraw(uint256 _pid, address _account, uint256 _desirePrice, uint256 _slippage) external;
 
     function liquidation(uint256 _pid, address _account, address _hunter, uint256 _maxDebt) external;
     function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _force) external;

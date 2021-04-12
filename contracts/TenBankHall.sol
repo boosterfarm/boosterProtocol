@@ -178,9 +178,9 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
         poolClaim[_poolClaimId].claimFromBank(msg.sender, _pidlist);
     }
 
-    function emergencyWithdraw(uint256 _sid) external nonReentrant {
+    function emergencyWithdraw(uint256 _sid, uint256 _desirePrice, uint256 _slippage) external nonReentrant {
         require(emergencyEnabled[_sid], 'emergency not enabled');
-        return strategyInfo[_sid].iLink.emergencyWithdraw(strategyInfo[_sid].pid, msg.sender);
+        return strategyInfo[_sid].iLink.emergencyWithdraw(strategyInfo[_sid].pid, msg.sender, _desirePrice, _slippage);
     }
 
     function liquidation(uint256 _sid, address _account, uint256 _maxDebt) external nonReentrant {

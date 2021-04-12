@@ -324,10 +324,10 @@ contract ActionCompPools is Ownable, IActionPools, IClaimFromBank {
         }
 
         user.rewardDebt = 0;
+        pool.lastRewardTotal = pool.lastRewardTotal.add(poolDebt);
         if (poolTotalPoints > 0) {
             user.rewardDebt = pool.lastRewardTotal.mul(_toPoints).div(poolTotalPoints);
         }
-        pool.lastRewardTotal = pool.lastRewardTotal.add(poolDebt);
 
         emit ActionDeposit(_account, _pid, _fromPoints, _toPoints);
     }
@@ -345,15 +345,15 @@ contract ActionCompPools is Ownable, IActionPools, IClaimFromBank {
         // recorde rewards and recalculate debt
         user.rewardRemain = pendingRewards(_pid, _account, _fromPoints, poolTotalPointsOld);
 
-        user.rewardDebt = 0;
-        if (poolTotalPoints > 0) {
-            user.rewardDebt = pool.lastRewardTotal.mul(_toPoints).div(poolTotalPoints);
-        }
-
         // recalculate lastRewardTotal
         uint256 poolDebt = TenMath.safeSub(pool.lastRewardTotal,
                                 pool.lastRewardTotal.mul(poolTotalPoints).div(poolTotalPointsOld));
         pool.lastRewardTotal = TenMath.safeSub(pool.lastRewardTotal, poolDebt);
+
+        user.rewardDebt = 0;
+        if (poolTotalPoints > 0) {
+            user.rewardDebt = pool.lastRewardTotal.mul(_toPoints).div(poolTotalPoints);
+        }
 
         emit ActionWithdraw(_account, _pid, _fromPoints, _toPoints);
     }

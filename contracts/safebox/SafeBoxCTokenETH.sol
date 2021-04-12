@@ -43,7 +43,7 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
     uint256 public borrowTotalAmount;          // total of user borrows and interests
     uint256 public borrowTotal;                // total of user borrows
 
-    uint256 public borrowLimitRate = 7.5e8;    // borrow limit,  max = borrowTotal * borrowLimitRate / 1e9, default=75%
+    uint256 public borrowLimitRate = 7e8;    // borrow limit,  max = borrowTotal * borrowLimitRate / 1e9, default=80%
     uint256 public borrowMinAmount;          // borrow min amount limit
 
     mapping(address => bool) public blacklist;  // deposit blacklist
@@ -57,10 +57,10 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
     address public compActionPool;          // action pool for borrow rewards
     uint256 public constant CTOKEN_BORROW = 1;  // action pool borrow action id
 
-    uint256 public optimalUtilizationRate1 = 6e8;  // Lending rate 1, ideal 1e9, default = 60%
-    uint256 public optimalUtilizationRate2 = 7e8;  // Lending rate 2, ideal 1e9, default = 70%
-    uint256 public stableRateSlope1 = 3e9;         // loan interest times in max borrow rate 1
-    uint256 public stableRateSlope2 = 55e9;        // loan interest times in max borrow rate 2
+    uint256 public optimalUtilizationRate1 = 6e8;  // Lending rate, ideal 1e9, default = 60%
+    uint256 public optimalUtilizationRate2 = 7.5e8;  // Lending rate, ideal 1e9, default = 75%
+    uint256 public stableRateSlope1 = 2e9;         // loan interest times in max borrow rate
+    uint256 public stableRateSlope2 = 20e9;         // loan interest times in max borrow rate
 
     address public iBuyback;
 

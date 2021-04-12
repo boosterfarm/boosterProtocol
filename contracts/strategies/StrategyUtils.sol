@@ -165,7 +165,7 @@ contract StrategyUtils is Ownable {
         uint256 holdAmount = checkBorrowGetHoldAmount(strategy, _pid, baseToken);
 
         uint256 totalAmount = IStrategyLink(strategy).getDepositAmount(_pid, _account);
-        uint256 borrowAmount = IStrategyLink(strategy).getBorrowAmountInBaseToken(_pid, _account);
+        uint256 borrowAmount = getBorrowAmountInBaseToken(_pid, _account);
         totalAmount = totalAmount.add(holdAmount);
         uint256 borrowAmountNew = getAmountIn(ISafeBox(_borrowFrom).token(), _borrowAmount, baseToken);
         uint256 borrowFactor = sconfig.getBorrowFactor(strategy, _pid);
@@ -210,7 +210,7 @@ contract StrategyUtils is Ownable {
         ISafeBox(_borrowFrom).update();
 
         address[] memory collateralToken = IStrategyLink(strategy).getPoolCollateralToken(_pid);
-        uint256 borrowAmount = IStrategyLink(strategy).getBorrowAmount(_pid, _account);
+        uint256 borrowAmount = getBorrowAmount(_pid, _account);
         uint256 repayAmount = borrowAmount.mul(_rate).div(1e9);
         if(repayAmount <= 0) {
             return ;
@@ -251,7 +251,7 @@ contract StrategyUtils is Ownable {
         }
     }
 
-    function getBorrowAmount(uint256 _pid, address _account) external view returns (uint256 value) {
+    function getBorrowAmount(uint256 _pid, address _account) public view returns (uint256 value) {
         (address borrowFrom,uint256 bid) = IStrategyLink(strategy).getBorrowInfo(_pid, _account);
         return getBorrowAmount(borrowFrom, bid);
     }
@@ -265,7 +265,7 @@ contract StrategyUtils is Ownable {
         }
     }
 
-    function getBorrowAmountInBaseToken(uint256 _pid, address _account) external view returns (uint256 value) {
+    function getBorrowAmountInBaseToken(uint256 _pid, address _account) public view returns (uint256 value) {
         (address borrowFrom,uint256 bid) = IStrategyLink(strategy).getBorrowInfo(_pid, _account);
         value = getBorrowAmount(borrowFrom, bid);
         value = calcBorrowAmountInBaseToken(_pid, borrowFrom, value);
@@ -409,6 +409,9 @@ contract StrategyUtils is Ownable {
     
     function getTokenIn(address _tokenIn, uint256 _amountIn, address _tokenOut) 
             public virtual onlyOwner returns (uint256 value) {
+        if(_amountIn <= 0 || getAmountIn(_tokenIn, _amountIn, _tokenOut) <= 0) {
+            return 0;
+        }
         IERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
         value = getTokenInTo(msg.sender, _tokenIn, _amountIn, _tokenOut);
         transferFromAllToken(address(this), msg.sender, _tokenIn, _tokenOut);

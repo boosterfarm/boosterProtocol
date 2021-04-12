@@ -16,6 +16,8 @@ import '../interfaces/IActionPools.sol';
 import '../interfaces/ICompActionTrigger.sol';
 import "../interfaces/ITenBankHall.sol";
 import "../interfaces/IBuyback.sol";
+import "../interfaces/IPriceChecker.sol";
+
 import "../utils/TenMath.sol";
 import "./StrategyMDexPools.sol";
 import "./StrategyUtils.sol";
@@ -58,11 +60,13 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
     address public override bank;          // address of bank
     IActionPools public compActionPool;    // address of comp action pool
     IBuyback public buyback;
+    IPriceChecker public priceChecker;
  
     event AddPool(uint256 _pid, uint256 _poolId, address lpToken, address _baseToken);
     event SetSConfig(address _old, address _new);
     event SetCompAcionPool(address _old, address _new);
     event SetMiniRewardAmount(uint256 _pid, uint256 _miniRewardAmount);
+    event SetPriceChecker(address _oldv, address _new);
 
     modifier onlyBank() {
         require(bank == msg.sender, 'mdex strategy only call by bank');
@@ -188,6 +192,11 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         buyback = IBuyback(_buyback);
     }
 
+    function setPriceChecker(address _priceChecker) external onlyOwner {
+        emit SetPriceChecker(address(priceChecker), _priceChecker);
+        priceChecker = IPriceChecker(_priceChecker);
+    }
+
     function setMiniRewardAmount(uint256 _pid, uint256 _miniRewardAmount) external onlyOwner {
         emit SetMiniRewardAmount(_pid, _miniRewardAmount);
         poolInfo[_pid].miniRewardAmount = _miniRewardAmount;
@@ -256,10 +265,6 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         }
 
         address rewardToken = poolRewardToken(pool.poolId);
-        if(utils.getAmountIn(rewardToken, newRewards, pool.baseToken) <= 0) {
-            return ;
-        }
-
         uint256 newRewardBase = utils.getTokenIn(rewardToken, newRewards, pool.baseToken);
 
         // reinvestment fee
@@ -316,7 +321,8 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
                      borrowToken == poolInfo[_pid].collateralToken[1], "borrow token error");
         }
 
-        require(utils.checkSlippageLimit(_pid, _desirePrice, _slippage), 'check slippage error');
+        _checkSlippage(_pid, _desirePrice, _slippage);
+        _checkOraclePrice(_pid, false);
 
         // update rewards
         updatePool(_pid);
@@ -408,13 +414,9 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
             return ;
         }
         if(isReversed) {
-            if(utils.getAmountIn(token1, swapAmt, token0) > 0) {
-                utils.getTokenIn(token1, swapAmt, token0);
-            }
+            utils.getTokenIn(token1, swapAmt, token0);
         } else {
-            if(utils.getAmountIn(token0, swapAmt, token1) > 0) {
-                utils.getTokenIn(token0, swapAmt, token1);
-            }  
+            utils.getTokenIn(token0, swapAmt, token1);
         }
     }
 
@@ -469,15 +471,14 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         _withdraw(_pid, _account, _rate, _desirePrice, _slippage);
         address tokensell = _toToken == token0 ? token1 : token0;
         uint256 amountsell = IERC20(tokensell).balanceOf(address(this));
-        if(amountsell > 0 && utils.getAmountIn(tokensell, amountsell, _toToken) > 0) {
-            utils.getTokenIn(tokensell, amountsell, _toToken);
-        }
+        utils.getTokenIn(tokensell, amountsell, _toToken);
         utils.transferFromAllToken(address(this), _account, token0, token1);
     }
 
     function _withdraw(uint256 _pid, address _account, uint256 _rate, uint256 _desirePrice, uint256 _slippage) internal {
         
-        require(utils.checkSlippageLimit(_pid, _desirePrice, _slippage), 'check slippage error');
+        _checkSlippage(_pid, _desirePrice, _slippage);
+        _checkOraclePrice(_pid, false);
 
         // update rewards
         updatePool(_pid);
@@ -559,12 +560,26 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         }
     }
 
-    function emergencyWithdraw(uint256 _pid, address _account) external override onlyBank {
-        _emergencyWithdraw(_pid, _account);
+    function emergencyWithdraw(uint256 _pid, address _account, uint256 _desirePrice, uint256 _slippage) external override onlyBank {
+        _emergencyWithdraw(_pid, _account, _desirePrice, _slippage);
     }
 
-    function _emergencyWithdraw(uint256 _pid, address _account) internal {
-        _account;
+    function _checkSlippage(uint256 _pid, uint256 _desirePrice, uint256 _slippage) internal {
+        require(utils.checkSlippageLimit(_pid, _desirePrice, _slippage), 'check slippage error');
+    }
+
+    function _checkOraclePrice(uint256 _pid, bool _large) internal {
+        if(address(priceChecker) == address(0)) {
+            return ;
+        }
+
+        require(priceChecker.checkLPTokenPriceLimit(address(poolInfo[_pid].lpToken), _large), 'oracle price');
+    }
+
+    function _emergencyWithdraw(uint256 _pid, address _account, uint256 _desirePrice, uint256 _slippage) internal {
+        _checkSlippage(_pid, _desirePrice, _slippage);
+        _checkOraclePrice(_pid, false);
+
         UserInfo storage user = userInfo[_pid][_account];
 
         // total of deposit and reinvest
@@ -588,6 +603,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
 
     function liquidation(uint256 _pid, address _account, address _hunter, uint256 _maxDebt) external override onlyBank {
         _maxDebt;
+        _checkOraclePrice(_pid, true);
 
         UserInfo storage user = userInfo[_pid][_account];
         PoolInfo storage pool = poolInfo[_pid];
@@ -629,9 +645,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         address tokensell = pool.baseToken == pool.collateralToken[0] ? 
                             pool.collateralToken[1] : pool.collateralToken[0];
         uint256 amountsell = IERC20(tokensell).balanceOf(address(this));
-        if(amountsell > 0) {
-            utils.getTokenIn(tokensell, amountsell, pool.baseToken);
-        }
+        utils.getTokenIn(tokensell, amountsell, pool.baseToken);
 
         // liquidation fee
         utils.makeLiquidationFee(_pid, pool.baseToken, borrowAmount);
