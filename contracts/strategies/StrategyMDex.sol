@@ -230,19 +230,15 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         uint256 lpTokenAmount = pendingLPAmount(_pid, _account);
         amount = utils.getLPToken2TokenAmount(address(poolInfo[_pid].lpToken), poolInfo[_pid].baseToken, lpTokenAmount);
     }
-
-    // update reward variables for all pools. 
-    function massUpdatePools(uint256 _start, uint256 _end) external override {
-        if(_end <= 0) {
-            _end = poolInfo.length;
-        }
-        for (uint256 pid = _start; pid < _end; ++pid) {
-            updatePool(pid);
-        }
-    }
     
     // update pools
-    function updatePool(uint256 _pid) public override {
+    function updatePool(uint256 _pid, uint256 _desirePrice, uint256 _slippage) external override {
+        _checkSlippage(_pid, _desirePrice, _slippage);
+        _checkOraclePrice(_pid, false);
+        _updatePool(_pid);
+    }
+
+    function _updatePool(uint256 _pid) internal {
         PoolInfo storage pool = poolInfo[_pid];
 
         if(address(compActionPool) != address(0)) {
@@ -326,7 +322,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         _checkOraclePrice(_pid, false);
 
         // update rewards
-        updatePool(_pid);
+        _updatePool(_pid);
 
         require(utils.checkBorrowLimit(_pid, _account, user.borrowFrom, _bAmount), 'borrow to limit');
 
@@ -482,7 +478,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         _checkOraclePrice(_pid, false);
 
         // update rewards
-        updatePool(_pid);
+        _updatePool(_pid);
 
         UserInfo storage user = userInfo[_pid][_account];
         PoolInfo storage pool = poolInfo[_pid];
@@ -612,7 +608,7 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         PoolInfo storage pool = poolInfo[_pid];
 
         // update rewards
-        updatePool(_pid);
+        _updatePool(_pid);
 
         // check liquidation limit
         (,, uint256 borrowRate) =  makeWithdrawCalcAmount(_pid, _account);

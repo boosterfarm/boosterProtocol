@@ -154,19 +154,10 @@ contract ActionPools is Ownable, IActionPools, IClaimFromBank {
         if(address(pool.rewardToken) == address(booToken)) {
             return value;
         }
-        uint256 balance = pool.rewardToken.balanceOf(address(this));
         value = pool.rewardMaxPerBlock.mul(_to.sub(_from));
-        if( pool.lastRewardClosed > balance 
-            || pool.lastRewardClosed > pool.poolTotalRewards) {
-                // require(pool.lastRewardClosed > balance, 'rewardClosed > balance');
-                // require(pool.lastRewardClosed > pool.poolTotalRewards, 'rewardClosed > poolTotalRewards');
-                return 0;
-        }
-        if( pool.lastRewardClosed.add(value) > balance) {
-            value = balance.sub(pool.lastRewardClosed);
-        }
         if( pool.lastRewardClosed.add(value) > pool.poolTotalRewards) {
-            value = pool.poolTotalRewards.sub(pool.lastRewardClosed);
+            value = pool.lastRewardClosed < pool.poolTotalRewards ?
+                    pool.poolTotalRewards.sub(pool.lastRewardClosed) : 0;
         }
     }
 

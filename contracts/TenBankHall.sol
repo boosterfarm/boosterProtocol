@@ -52,8 +52,17 @@ contract TenBankHall is Ownable, ITenBankHall, ReentrancyGuard {
     // blacklist manager
     function setBlacklist(address _account, bool _newset) external onlyOwner {
         blacklist[_account] = _newset;
+        if(_newset) {
+            require(isContract(_account), 'contract address only');
+        }
         emit SetBlacklist(_account, _newset);
-    }    
+    }
+
+    function isContract(address addr) internal returns (bool) {
+        uint size;
+        assembly { size := extcodesize(addr) }
+        return size > 0;
+    }
     
     function setEmergencyEnabled(uint256 _sid, bool _newset) external onlyOwner {
         emergencyEnabled[_sid] = _newset;

@@ -27,8 +27,8 @@ interface IStrategyLink {
     function pendingRewards(uint256 _pid, address _account) external view returns (uint256 value);
     function pendingLPAmount(uint256 _pid, address _account) external view returns (uint256 value);
 
-    function massUpdatePools(uint256 _start, uint256 _end) external;
-    function updatePool(uint256 _pid) external;
+    // function massUpdatePools(uint256 _start, uint256 _end) external;
+    function updatePool(uint256 _pid, uint256 _desirePrice, uint256 _slippage) external;
 
     function deposit(uint256 _pid, address _account, address _debtFrom, uint256 _bAmount, uint256 _desirePrice, uint256 _slippage) external returns (uint256 lpAmount);
     function depositLPToken(uint256 _pid, address _account, address _debtFrom, uint256 _bAmount, uint256 _desirePrice, uint256 _slippage) external returns (uint256 lpAmount);

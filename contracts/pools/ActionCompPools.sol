@@ -157,16 +157,9 @@ contract ActionCompPools is Ownable, IActionPools, IClaimFromBank {
         if( address(pool.rewardToken) == address(booToken)) {
             return value;
         }
-        uint256 balance = pool.rewardToken.balanceOf(address(this));
-        if( pool.lastRewardClosed > balance ||
-            pool.lastRewardClosed > pool.poolTotalRewards) {
-            return 0;
-        }
-        if( pool.lastRewardClosed.add(value) > balance) {
-            value = balance.sub(pool.lastRewardClosed);
-        }
         if( pool.lastRewardClosed.add(value) > pool.poolTotalRewards) {
-            value = pool.poolTotalRewards.sub(pool.lastRewardClosed);
+            value = pool.lastRewardClosed < pool.poolTotalRewards ?
+                    pool.poolTotalRewards.sub(pool.lastRewardClosed) : 0;
         }
     }
 
