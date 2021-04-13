@@ -27,7 +27,7 @@ interface ISafeBox {
     function withdraw(uint256 _value) external;
     
     function emergencyWithdraw() external;
-    function emergencyRepay(uint256 _bid, uint256 _value) external;
+    function emergencyRepay(uint256 _bid) external;
 
     function borrowInfoLength() external view returns (uint256);
 

@@ -445,15 +445,12 @@ contract SafeBoxCTokenETH is SafeBoxCTokenImplETH, ReentrancyGuard, Ownable, ICo
         tokenSafeTransfer(address(token), msg.sender);
     }
 
-    function emergencyRepay(uint256 _bid, uint256 _value) external virtual override nonReentrant {
+    function emergencyRepay(uint256 _bid) external virtual override nonReentrant {
         require(emergencyRepayEnabled, 'not in emergency');
         // in emergency mode , only repay loan
         BorrowInfo storage borrowCurrent = borrowInfo[_bid];
 
-        uint256 repayAmount = _value;
-        if(repayAmount > borrowCurrent.amount) {
-            repayAmount = borrowCurrent.amount;
-        }
+        uint256 repayAmount = borrowCurrent.amount;
 
         IERC20(baseToken()).safeTransferFrom(msg.sender, address(this), repayAmount);
         ctokenRepayBorrow(repayAmount);
