@@ -96,7 +96,7 @@ contract PriceCheckerLPToken is Ownable, IPriceChecker {
         uint256 slip = getPriceSlippage(_lptoken);
         uint256 priceRate = price0.mul(1e9).div(price1);
         if(_largeType) {
-            priceRate = priceRate.mul(largeSlipRate).div(1e9);
+            slip = slip.mul(largeSlipRate).div(1e9);
         }
         if(priceRate >= uint256(1e9).add(slip) || priceRate <= uint256(1e9).sub(slip)) {
             return false;

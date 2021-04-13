@@ -311,14 +311,15 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
                     public override onlyBank returns (uint256 lpAmount) {
 
         UserInfo storage user = userInfo[_pid][_account];
+        PoolInfo storage pool = poolInfo[_pid];
         require(user.borrowFrom == address(0) || _bAmount == 0 ||
                 user.borrowFrom == _borrowFrom, 
                 'borrowFrom cannot changed');
         if(user.borrowFrom == address(0) && _borrowFrom != address(0)) {
             user.borrowFrom = _borrowFrom;
             address borrowToken = ISafeBox(user.borrowFrom).token();
-            require( borrowToken == poolInfo[_pid].collateralToken[0] || 
-                     borrowToken == poolInfo[_pid].collateralToken[1], "borrow token error");
+            require( borrowToken == pool.collateralToken[0] || 
+                     borrowToken == pool.collateralToken[1], "borrow token error");
         }
 
         _checkSlippage(_pid, _desirePrice, _slippage);
@@ -346,23 +347,23 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         require(utils.checkDepositLimit(_pid, _account, lpAmount), 'farm lptoken amount to high');
 
         // return cash
-        address token0 = poolInfo[_pid].collateralToken[0];
-        address token1 = poolInfo[_pid].collateralToken[1];
+        address token0 = pool.collateralToken[0];
+        address token1 = pool.collateralToken[1];
         utils.transferFromAllToken(address(this), _account, token0, token1);
 
         // booking
         uint256 lpPointsOld = user.lpPoints;
         uint256 addPoint = lpAmount;
-        if(poolInfo[_pid].totalLPReinvest > 0) {
-            addPoint = lpAmount.mul(poolInfo[_pid].totalPoints).div(poolInfo[_pid].totalLPReinvest);
+        if(pool.totalLPReinvest > 0) {
+            addPoint = lpAmount.mul(pool.totalPoints).div(pool.totalLPReinvest);
         }
 
         user.lpPoints = user.lpPoints.add(addPoint);
-        poolInfo[_pid].totalPoints = poolInfo[_pid].totalPoints.add(addPoint);
-        poolInfo[_pid].totalLPReinvest = poolInfo[_pid].totalLPReinvest.add(lpAmount);
+        pool.totalPoints = pool.totalPoints.add(addPoint);
+        pool.totalLPReinvest = pool.totalLPReinvest.add(lpAmount);
 
         user.lpAmount = user.lpAmount.add(lpAmount);
-        poolInfo[_pid].totalLPAmount = poolInfo[_pid].totalLPAmount.add(lpAmount);
+        pool.totalLPAmount = pool.totalLPAmount.add(lpAmount);
 
         // check liquidation limit
         (,, uint256 borrowRate) =  makeWithdrawCalcAmount(_pid, _account);
@@ -484,17 +485,18 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         updatePool(_pid);
 
         UserInfo storage user = userInfo[_pid][_account];
+        PoolInfo storage pool = poolInfo[_pid];
 
         // calc rate
         (, uint256 rewardsRate, uint256 borrowRate) =  makeWithdrawCalcAmount(_pid, _account);
-        require(poolInfo[_pid].totalPoints > 0 && poolInfo[_pid].totalLPReinvest > 0, 'empty pool');
+        require(pool.totalPoints > 0 && pool.totalLPReinvest > 0, 'empty pool');
 
         uint256 removedPoint = user.lpPoints.mul(_rate).div(1e9);
-        uint256 withdrawLPTokenAmount = removedPoint.mul(poolInfo[_pid].totalLPReinvest).div(poolInfo[_pid].totalPoints);
+        uint256 withdrawLPTokenAmount = removedPoint.mul(pool.totalLPReinvest).div(pool.totalPoints);
         uint256 removedLPAmount = _rate >= 1e9 ? user.lpAmount : user.lpAmount.mul(_rate).div(1e9);
 
         // withdraw and remove liquidity
-        withdrawLPTokenAmount = TenMath.min(withdrawLPTokenAmount, poolInfo[_pid].totalLPReinvest);
+        withdrawLPTokenAmount = TenMath.min(withdrawLPTokenAmount, pool.totalLPReinvest);
         makeWithdrawRemoveLiquidity(_pid, withdrawLPTokenAmount);
 
         if(borrowRate > 0) {
@@ -507,11 +509,11 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
         // booking
         uint256 lpPointsOld = user.lpPoints;
         user.lpPoints = TenMath.safeSub(user.lpPoints, removedPoint);
-        poolInfo[_pid].totalPoints = TenMath.safeSub(poolInfo[_pid].totalPoints, removedPoint);
-        poolInfo[_pid].totalLPReinvest = TenMath.safeSub(poolInfo[_pid].totalLPReinvest, withdrawLPTokenAmount);
+        pool.totalPoints = TenMath.safeSub(pool.totalPoints, removedPoint);
+        pool.totalLPReinvest = TenMath.safeSub(pool.totalLPReinvest, withdrawLPTokenAmount);
 
         user.lpAmount = TenMath.safeSub(user.lpAmount, removedLPAmount);
-        poolInfo[_pid].totalLPAmount = TenMath.safeSub(poolInfo[_pid].totalLPAmount, removedLPAmount);
+        pool.totalLPAmount = TenMath.safeSub(pool.totalLPAmount, removedLPAmount);
 
         emit StrategyWithdraw(address(this), _pid, _account, withdrawLPTokenAmount);
 
@@ -551,12 +553,13 @@ contract StrategyMDex is StrategyMDexPools, Ownable, IStrategyLink, ICompActionT
 
     function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _force) public override onlyBank {
         utils.makeRepay(_pid, userInfo[_pid][_account].borrowFrom, _account, _rate, _force);
-        if(getBorrowAmount(_pid, _account) == 0) {
+        uint256 borrowAmountNow = getBorrowAmount(_pid, _account);
+        if(borrowAmountNow == 0) {
             userInfo[_pid][_account].borrowFrom = address(0);
             userInfo[_pid][_account].bid = 0;
         }
         if(_rate == 1e9 && _force) {
-            require(getBorrowAmount(_pid, _account) == 0, 'repay not clear');
+            require(borrowAmountNow == 0, 'repay not clear');
         }
     }
 
