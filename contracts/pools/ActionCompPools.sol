@@ -406,7 +406,7 @@ contract ActionCompPools is Ownable, IActionPools, IClaimFromBank {
         uint256 balance = _token.balanceOf(address(this));
         value = _amount > balance ? balance : _amount;
         if ( value > 0 ) {
-            _token.transfer(_to, value);
+            _token.safeTransfer(_to, value);
             value =  TenMath.safeSub(balance, _token.balanceOf(address(this)));
         }
     }
