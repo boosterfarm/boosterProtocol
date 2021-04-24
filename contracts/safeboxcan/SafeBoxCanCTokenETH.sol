@@ -107,7 +107,7 @@ contract SafeBoxCanCTokenETH is SafeBoxCanCTokenImplETH, ReentrancyGuard, Ownabl
     }
 
     function getSource() external virtual override view returns (string memory) {
-        return 'filda';
+        return 'channels';
     }
 
     // blacklist
