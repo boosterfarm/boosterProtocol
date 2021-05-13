@@ -85,7 +85,7 @@ contract SafeBoxChannels is SafeBoxCanCToken {
         _borrow(_bid, _value, _to);
 
         if(compActionPool != address(0) && _value > 0) {
-            IActionPools(compActionPool).onAcionIn(REWARDS_DEPOSIT_CALLID, owner, 
+            IActionPools(compActionPool).onAcionIn(REWARDS_BORROW_CALLID, owner, 
                     accountBorrowPointsOld, accountBorrowPoints[owner]);
         }
     }
