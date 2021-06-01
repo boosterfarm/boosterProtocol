@@ -43,13 +43,13 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     }
 
     function utils() external view returns(address) {
-        // Compatible with old version
+        // Compatible with old version 1
         return address(0);
     }
 
     function setPoolImpl(address _swapPoolImpl) external onlyOwner {
         require(address(swapPoolImpl) == address(0), 'only once');
-        emit SetPoolImpl(address(this), _swapPoolImpl);
+        emit SetPoolImpl(_this, _swapPoolImpl);
         swapPoolImpl = IStrategyV2SwapPool(_swapPoolImpl);
     }
 
@@ -93,12 +93,13 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     }
 
     function userInfo(uint256 _pid, address _account)
-        external override view returns (uint256 lpAmount, uint256 lpPoints, address borrowFrom, uint256 bAmount) {
+        external override view returns (uint256 lpAmount, uint256 lpPoints, address borrowFrom, uint256 bid) {
+        // Compatible with old version 1
         UserInfo storage user = userInfo2[_pid][_account];
         lpAmount = user.lpAmount;
         lpPoints = user.lpPoints;
         borrowFrom;
-        bAmount;
+        bid;
     }
 
     function getBorrowInfo(uint256 _pid, address _account) 
@@ -261,6 +262,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
     function getBorrowAmount(uint256 _pid, address _account)
         external override view returns (uint256 value) {
+        // Compatible with old version 1
         value = getBorrowAmountInBaseToken(_pid, _account);
     }
 
@@ -275,7 +277,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     // function massUpdatePools(uint256 _start, uint256 _end) external;
     function updatePool(uint256 _pid, uint256 _unused, uint256 _minOutput) external override {
         _unused;
-        checkOraclePrice(_pid, false);
+        checkOraclePrice(_pid, true);
         uint256 lpAmount = _updatePool(_pid);
         require(lpAmount >= _minOutput, 'insufficient LP output');
     }
@@ -313,7 +315,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         // swap to basetoken
         if(refundToken != pool.collateralToken[0] && refundToken != pool.collateralToken[1]) {
             IERC20(refundToken).safeTransfer(address(swapPoolImpl), newRewards);
-            newRewards = swapPoolImpl.swapTokenTo(refundToken, newRewards, pool.baseToken, address(this));
+            newRewards = swapPoolImpl.swapTokenTo(refundToken, newRewards, pool.baseToken, _this);
             refundToken = pool.baseToken;
         }
 
@@ -345,8 +347,6 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo2[_pid][_account];
 
-        checkOraclePrice(_pid, false);
-
         // update rewards
         _updatePool(_pid);
 
@@ -360,6 +360,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         }
 
         if(_bAmount0 > 0) {
+            checkOraclePrice(_pid, false);  // Only Check the price when there is leverage
             _makeBorrow(_pid, _account, _debtFrom0, _bAmount0);
             _makeBorrow(_pid, _account, _debtFrom1, 0); // 0 = auto fit balance
         }
@@ -394,11 +395,12 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         user.lpAmount = user.lpAmount.add(lpAmount);
         pool.totalLPAmount = pool.totalLPAmount.add(lpAmount);
 
-        emit StrategyDeposit(address(this), _pid, _account, lpAmount, _bAmount0);
+        emit StrategyDeposit(_this, _pid, _account, lpAmount, _bAmount0);
 
         // check pool deposit limit
         require(lpAmount >= _minOutput, 'insufficient LP output');
         checkDepositLimit(_pid, _account);
+        checkBorrowLimit(_pid, _account);
         checkLiquidationLimit(_pid, _account, false);
 
         if(address(compActionPool) != address(0) && addPoint > 0) {
@@ -406,7 +408,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         }
     }
     
-    function withdraw(uint256 _pid, address _account, uint256 _rate, address _toToken, uint256 _minOutputToken2, uint256 _minOutput)
+    function withdraw(uint256 _pid, address _account, uint256 _rate, address _toToken, uint256 _minOutputToken0, uint256 _minOutput)
         external override onlyBank {
         _withdraw(_pid, _account, _rate);
 
@@ -414,9 +416,9 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         uint256 outValue;
         (address token0, address token1) = (poolInfo[_pid].collateralToken[0], poolInfo[_pid].collateralToken[1]);
         if(_toToken == address(0)) {
-            outValue = _safeTransferAll(token0, _account);
-            uint256 outValue2 = _safeTransferAll(token1, _account);
-            require(outValue2 >= _minOutputToken2, 'insufficient Token output 2');
+            uint256 outValue0 = _safeTransferAll(token0, _account);
+            require(outValue0 >= _minOutputToken0, 'insufficient Token output first');
+            outValue = _safeTransferAll(token1, _account);
         } else if(token0 == _toToken) {
             _swapTokenAllTo(token1, _toToken);
             outValue = _safeTransferAll(_toToken, _account);
@@ -442,8 +444,6 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     }
 
     function _withdraw(uint256 _pid, address _account, uint256 _rate) internal {
-
-        checkOraclePrice(_pid, false);
 
         // update rewards
         _updatePool(_pid);
@@ -479,7 +479,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         user.lpAmount = TenMath.safeSub(user.lpAmount, removedLPAmount);
         pool.totalLPAmount = TenMath.safeSub(pool.totalLPAmount, removedLPAmount);
 
-        emit StrategyWithdraw(address(this), _pid, _account, withdrawLPTokenAmount);
+        emit StrategyWithdraw(_this, _pid, _account, withdrawLPTokenAmount);
 
         if(address(compActionPool) != address(0) && removedPoint > 0) {
             compActionPool.onAcionOut(_pid, _account, lpPointsOld, user.lpPoints);
@@ -502,11 +502,16 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
                 user.borrowFrom[bindex] = _debtFrom;
                 user.bids[bindex] = newbid;
             }
-            emit StrategyBorrow2(address(this), _pid, _account, _debtFrom, amount);
+            emit StrategyBorrow2(_this, _pid, _account, _debtFrom, amount);
         }
     }
 
     function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _force) public override {
+        UserInfo storage user = userInfo2[_pid][_account];
+        if(user.borrowFrom[0] != address(0) || user.borrowFrom[1] != address(0)) {
+            // _force as true, must repay all lending
+            checkOraclePrice(_pid, _force ? false : true);
+        }
         _repayBorrow(_pid, _account, _rate, 0, _force);
         _repayBorrow(_pid, _account, _rate, 1, _force);
     }
@@ -514,6 +519,14 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     function _repayBorrow(uint256 _pid, address _account, uint256 _rate, uint256 _index, bool _force) internal {
         UserInfo storage user = userInfo2[_pid][_account];
         PoolInfo storage pool = poolInfo[_pid];
+
+        address borrowFrom = user.borrowFrom[_index];
+        uint256 bid = user.bids[_index];
+
+        if(borrowFrom != address(0)) {
+            ISafeBox(borrowFrom).update();
+        }
+
         (address btoken, uint256 bAmount, bool swap, uint256 swapAmount) = 
                 calcWithdrawRepayBorrow(_pid, _account, _rate, _index);
 
@@ -522,16 +535,14 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
                 (pool.collateralToken[1], pool.collateralToken[0]) :
                 (pool.collateralToken[0], pool.collateralToken[1]);
             IERC20(fromToken).safeTransfer(address(swapPoolImpl), swapAmount);
-            swapPoolImpl.swapTokenTo(fromToken, swapAmount, toToken, address(this));
+            swapPoolImpl.swapTokenTo(fromToken, swapAmount, toToken, _this);
         }
 
-        address borrowFrom = user.borrowFrom[_index];
-        uint256 bid = user.bids[_index];
-
         if(bAmount > 0){
+            bAmount = TenMath.min(bAmount, IERC20(btoken).balanceOf(_this));
             IERC20(btoken).safeTransfer(borrowFrom, bAmount);
             ISafeBox(borrowFrom).repay(user.bids[_index], bAmount);
-            emit StrategyRepayBorrow2(address(this), _pid, _account, borrowFrom, bAmount);
+            emit StrategyRepayBorrow2(_this, _pid, _account, borrowFrom, bAmount);
         }
 
         if(_rate == 1e9 && _force && borrowFrom != address(0)) {
@@ -546,8 +557,6 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
     function emergencyWithdraw(uint256 _pid, address _account, uint256 _minOutput0, uint256 _minOutput1)
         external override onlyBank {
-
-        checkOraclePrice(_pid, false);
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo2[_pid][_account];
@@ -586,7 +595,6 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         _updatePool(_pid);
 
         // check liquidation limit
-        checkOraclePrice(_pid, true);
         checkLiquidationLimit(_pid, _account, true);
 
         uint256 lpPointsOld = user.lpPoints;
@@ -598,6 +606,10 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         
         user.lpPoints = 0;
         user.lpAmount = 0;
+
+        if(withdrawLPTokenAmount > 0) {
+            swapPoolImpl.withdraw(pool.poolId, withdrawLPTokenAmount, true);
+        }
 
         // repay borrow
         repayBorrow(_pid, _account, 1e9, false);

@@ -213,17 +213,18 @@ contract StrategyV2MDexSwapPool is IStrategyV2SwapPool {
         }
         amountA = IERC20(tokenA).balanceOf(address(this));
         amountB = IERC20(tokenB).balanceOf(address(this));
-        IERC20(tokenA).approve(address(router), amountA);
-        IERC20(tokenB).approve(address(router), amountB);
-        // (,,liquidity) = 
-        router.addLiquidity(tokenA, tokenB, 
-                            amountA, amountB, 
-                            0, 0, 
-                            address(this), block.timestamp.add(60));
-        liquidity = IERC20(lpToken).balanceOf(address(this));
-        if(liquidity > 0 && _autoPool) {
-            IERC20(lpToken).approve(address(farmpool), liquidity);
-            farmpool.deposit(_poolId, liquidity);
+        if(amountA > 0 && amountB > 0) {
+            IERC20(tokenA).approve(address(router), amountA);
+            IERC20(tokenB).approve(address(router), amountB);
+            router.addLiquidity(tokenA, tokenB, 
+                                amountA, amountB, 
+                                0, 0, 
+                                address(this), block.timestamp.add(60));
+            liquidity = IERC20(lpToken).balanceOf(address(this));
+            if(liquidity > 0 && _autoPool) {
+                IERC20(lpToken).approve(address(farmpool), liquidity);
+                farmpool.deposit(_poolId, liquidity);
+            }
         }
         _safeTransferAll(lpToken, strategy);
         _safeTransferAll(tokenA, strategy);

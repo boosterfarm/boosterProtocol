@@ -7,7 +7,7 @@ interface ICTokenInterface {
 
   // function decimals() external returns (uint8);
 
-  // function underlying() external returns (address);
+  function underlying() external view returns (address);
 
   // function mint(uint mintAmount) external returns (uint);
 

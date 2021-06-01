@@ -11,6 +11,8 @@ interface IMdexHecoPool {
 
     // function reward(uint256 blockNumber) external view returns (uint256);
 
+    function mdx() external view returns (address);
+
     function poolInfo(uint256 _pid) external view returns(address, uint256, uint256, uint256, uint256, uint256);
 
     function userInfo(uint256 _pid, address _user) external view returns (uint256, uint256, uint256);

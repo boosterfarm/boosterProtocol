@@ -98,11 +98,11 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
 
 
     function calcRefundFee(uint256 _pid, uint256 _rewardAmount)
-        public view returns (address gather, uint256 baseAmount) {
+        public view returns (address gather, uint256 feeAmount) {
         PoolInfo storage pool = poolInfo[_pid];
         uint256 feerate;
         (gather, feerate) = sconfig.getRefundFee(_this, _pid);
-        baseAmount = _rewardAmount.mul(feerate).div(1e9);
+        feeAmount = _rewardAmount.mul(feerate).div(1e9);
     }
 
     function calcBorrowAmount(uint256 _pid, address _account, address _debtFrom, uint256 _bAmount) 
@@ -220,7 +220,7 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
             address swapToken = _index == 0 ? pool.collateralToken[1] : pool.collateralToken[0];
             swap = swapToken == pool.collateralToken[1];
             swapAmount = swapPoolImpl.getAmountOut(swapToken, token, amount.sub(balance));
-            balance = IERC20(token).balanceOf(_this);
+            swapAmount = TenMath.min(swapAmount, IERC20(swapToken).balanceOf(_this));
         }
     }
 

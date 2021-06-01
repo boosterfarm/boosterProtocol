@@ -18,7 +18,7 @@ interface IMdexFactory {
 
     // function allPairsLength() external view returns (uint);
 
-    // function createPair(address tokenA, address tokenB) external returns (address pair);
+    function createPair(address tokenA, address tokenB) external returns (address pair);
 
     // function setFeeTo(address) external;
 
@@ -28,13 +28,13 @@ interface IMdexFactory {
 
     // function setInitCodeHash(bytes32) external;
 
-    // function sortTokens(address tokenA, address tokenB) external pure returns (address token0, address token1);
+    function sortTokens(address tokenA, address tokenB) external pure returns (address token0, address token1);
 
-    // function pairFor(address tokenA, address tokenB) external view returns (address pair);
+    function pairFor(address tokenA, address tokenB) external view returns (address pair);
 
     function getReserves(address tokenA, address tokenB) external view returns (uint256 reserveA, uint256 reserveB);
 
-    // function quote(uint256 amountA, uint256 reserveA, uint256 reserveB) external pure returns (uint256 amountB);
+    function quote(uint256 amountA, uint256 reserveA, uint256 reserveB) external pure returns (uint256 amountB);
 
     // function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) external view returns (uint256 amountOut);
 

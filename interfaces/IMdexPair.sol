@@ -21,7 +21,7 @@ interface IMdexPair {
 
     // function transfer(address to, uint value) external returns (bool);
 
-    // function transferFrom(address from, address to, uint value) external returns (bool);
+    function transferFrom(address from, address to, uint value) external returns (bool);
 
     // function DOMAIN_SEPARATOR() external view returns (bytes32);
 
@@ -59,11 +59,11 @@ interface IMdexPair {
 
     // function kLast() external view returns (uint);
 
-    // function mint(address to) external returns (uint liquidity);
+    function mint(address to) external returns (uint liquidity);
 
-    // function burn(address to) external returns (uint amount0, uint amount1);
+    function burn(address to) external returns (uint amount0, uint amount1);
 
-    // function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
+    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
 
     // function skim(address to) external;
 
