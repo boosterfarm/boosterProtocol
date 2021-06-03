@@ -62,6 +62,12 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         emit SetComponents(_compActionPool, _buyback, _priceChecker, _config);
     }
 
+    function setPoolConfig(uint256 _pid, string memory _key, uint256 _value)
+        external onlyOwner {
+        poolConfig[_pid][_key] = _value;
+        emit SetPoolConfig(_pid, _key, _value);
+    }
+
     function poolLength() external override view returns (uint256) {
         return poolInfo.length;
     }
@@ -185,9 +191,9 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
             abi.encodeWithSignature("checkAddPoolLimit(uint256)", _pid));
     }
 
-    function checkDepositLimit(uint256 _pid, address _account) public view {
+    function checkDepositLimit(uint256 _pid, address _account, uint256 _orginSwapRate) public view {
         delegateToViewImplementation(
-            abi.encodeWithSignature("checkDepositLimit(uint256,address)", _pid, _account));
+            abi.encodeWithSignature("checkDepositLimit(uint256,address,uint256)", _pid, _account, _orginSwapRate));
     }
 
     function checkLiquidationLimit(uint256 _pid, address _account, bool liqucheck) public view {
@@ -344,6 +350,8 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         uint256 _bAmount0, address _debtFrom1, uint256 _minOutput)
         internal returns (uint256 lpAmount)  {
 
+        require(tx.origin == _account, 'not contract');
+
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo2[_pid][_account];
 
@@ -352,6 +360,11 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
         address token0 = pool.collateralToken[0];
         address token1 = pool.collateralToken[1];
+        uint256 orginSwapRate = 0;
+        {
+            (uint256 res0, uint256 res1) = swapPoolImpl.getReserves(pool.lpToken);
+            orginSwapRate = res0.mul(1e18).div(res1);
+        }
 
         // borrow
         if(user.borrowFrom.length == 0) {
@@ -399,7 +412,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
         // check pool deposit limit
         require(lpAmount >= _minOutput, 'insufficient LP output');
-        checkDepositLimit(_pid, _account);
+        checkDepositLimit(_pid, _account, orginSwapRate);
         checkBorrowLimit(_pid, _account);
         checkLiquidationLimit(_pid, _account, false);
 
@@ -444,6 +457,8 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     }
 
     function _withdraw(uint256 _pid, address _account, uint256 _rate) internal {
+
+        require(tx.origin == _account, 'not contract');
 
         // update rewards
         _updatePool(_pid);

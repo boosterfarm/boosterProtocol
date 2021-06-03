@@ -42,6 +42,8 @@ contract StrategyV2Data {
     address public helperImpl;
 
     IStrategyConfig public sconfig;
+    mapping (uint256 => mapping (string => uint256)) public poolConfig;
+
     IStrategyV2SwapPool public swapPoolImpl;
 
     IBuyback public buyback;

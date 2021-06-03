@@ -36,13 +36,21 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
         require(swapPoolImpl.getDepositToken(pool.poolId) == pool.lpToken, 'lptoken error');
     }
 
-    function checkDepositLimit(uint256 _pid, address _account) external view {
+    function checkDepositLimit(uint256 _pid, address _account, uint256 _orginSwapRate) external view {
         _account;
         require(address(sconfig) != address(0), 'not config');
         uint256 farmLimit = sconfig.getFarmPoolFactor(_this, _pid);
         if(farmLimit > 0) {
             require(poolInfo[_pid].totalLPReinvest <= farmLimit, 'pool invest limit');
         }
+
+        (uint256 res0, uint256 res1) = swapPoolImpl.getReserves(poolInfo[_pid].lpToken);
+        uint256 curSwapRate = res0.mul(1e18).div(res1);
+        uint256 slippage = poolConfig[_pid][string('deposit_slippage')];
+        require(slippage > 0, 'deposit_slippage == 0');
+        uint256 swapSlippage = _orginSwapRate.mul(1e9).div(curSwapRate);
+        require(swapSlippage < slippage.add(1e9) && 
+                swapSlippage > uint256(1e9).sub(slippage), 'pool slippage over');
     }
 
     function checkLiquidationLimit(uint256 _pid, address _account, bool liqucheck) external view {
