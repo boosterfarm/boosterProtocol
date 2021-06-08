@@ -110,7 +110,7 @@ contract StrategyV2MDexSwapPool is IStrategyV2SwapPool {
     }
 
     function swapTokenTo(address _tokenIn, uint256 _amountIn, address _tokenOut, address _toAddress) 
-        public override returns (uint256) {
+        public override onlyStrategy returns (uint256) {
         if(_tokenIn == _tokenOut) {
             return _safeTransferAll(_tokenOut, _toAddress);
         }

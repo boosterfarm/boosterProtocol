@@ -415,6 +415,9 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         checkDepositLimit(_pid, _account, orginSwapRate);
         checkBorrowLimit(_pid, _account);
         checkLiquidationLimit(_pid, _account, false);
+        if(_bAmount0 > 0) {
+            checkOraclePrice(_pid, false);
+        }
 
         if(address(compActionPool) != address(0) && addPoint > 0) {
             compActionPool.onAcionIn(_pid, _account, lpPointsOld, user.lpPoints);
@@ -466,6 +469,9 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo2[_pid][_account];
 
+        bool bBorrow = (user.borrowFrom[0] != address(0) || user.borrowFrom[1] != address(0));
+        if(bBorrow) checkOraclePrice(_pid, false);
+
         address token0 = pool.collateralToken[0];
         address token1 = pool.collateralToken[1];
 
@@ -494,6 +500,8 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         user.lpAmount = TenMath.safeSub(user.lpAmount, removedLPAmount);
         pool.totalLPAmount = TenMath.safeSub(pool.totalLPAmount, removedLPAmount);
 
+        if(bBorrow) checkOraclePrice(_pid, false);
+
         emit StrategyWithdraw(_this, _pid, _account, withdrawLPTokenAmount);
 
         if(address(compActionPool) != address(0) && removedPoint > 0) {
@@ -521,7 +529,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         }
     }
 
-    function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _force) public override {
+    function repayBorrow(uint256 _pid, address _account, uint256 _rate, bool _force) public override onlyBank {
         UserInfo storage user = userInfo2[_pid][_account];
         if(user.borrowFrom[0] != address(0) || user.borrowFrom[1] != address(0)) {
             // _force as true, must repay all lending
@@ -560,13 +568,16 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
             emit StrategyRepayBorrow2(_this, _pid, _account, borrowFrom, bAmount);
         }
 
-        if(_rate == 1e9 && _force && borrowFrom != address(0)) {
+        if(_rate == 1e9 && borrowFrom != address(0)) {
             uint256 value = ISafeBox(borrowFrom).pendingBorrowAmount(bid);
             value = value.add(ISafeBox(borrowFrom).pendingBorrowRewards(bid));
 
-            require(value == 0, 'repayBorrow not clear');
-            user.borrowFrom[_index] = address(0);
-            user.bids[_index] = 0;
+            if(_force) require(value == 0, 'repayBorrow not clear');
+
+            if(value == 0) {
+                user.borrowFrom[_index] = address(0);
+                user.bids[_index] = 0;
+            }
         }
     }
 
@@ -575,6 +586,9 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo2[_pid][_account];
+
+        bool bBorrow = (user.borrowFrom[0] != address(0) || user.borrowFrom[1] != address(0));
+        if(bBorrow) checkOraclePrice(_pid, true);
 
         // total of deposit and reinvest
         uint256 withdrawLPTokenAmount = pendingLPAmount(_pid, _account);
@@ -594,6 +608,8 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
         repayBorrow(_pid, _account, 1e9, true);
 
+        if(bBorrow) checkOraclePrice(_pid, true);
+
         require(_safeTransferAll(token0, _account) >= _minOutput0, 'insufficient output 0');
         require(_safeTransferAll(token1, _account) >= _minOutput1, 'insufficient output 1');
     }
@@ -611,6 +627,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
         // check liquidation limit
         checkLiquidationLimit(_pid, _account, true);
+        checkOraclePrice(_pid, true);
 
         uint256 lpPointsOld = user.lpPoints;
         uint256 withdrawLPTokenAmount = pendingLPAmount(_pid, _account);
@@ -641,6 +658,8 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
             (address gather, uint256 feeAmount) = calcLiquidationFee(_pid, _account);
             if(feeAmount > 0) IERC20(pool.baseToken).safeTransfer(gather, feeAmount);
         }
+
+        checkOraclePrice(_pid, true);
 
         // send rewards to hunter
         uint256 hunterAmount = _safeTransferAll(pool.baseToken, _hunter);

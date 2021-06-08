@@ -59,11 +59,12 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
         uint256 liquRate = sconfig.getLiquidationFactor(_this, _pid);
         uint256 borrowAmount = IStrategyV2Pair(_this).getBorrowAmountInBaseToken(_pid, _account);
         if(borrowAmount == 0) {
+            require(!liqucheck, 'no borrow');
             return ;
         }
 
         uint256 holdLPTokenAmount = IStrategyV2Pair(_this).pendingLPAmount(_pid, _account);
-        uint256 holdBaseAmount = swapPoolImpl.getLPTokenAmountInBaseToken(poolInfo[_pid].lpToken, holdLPTokenAmount, poolInfo[_pid].baseToken);
+        uint256 holdBaseAmount = getLPTokenAmountInBaseToken(_pid, holdLPTokenAmount, poolInfo[_pid].baseToken);
         if(liqucheck) {
             // check whether in liquidation 
             if(holdBaseAmount > 0) {
@@ -76,7 +77,7 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
         }
     }
 
-    function checkOraclePrice(uint256 _pid, bool _large) external view {
+    function checkOraclePrice(uint256 _pid, bool _large) public view {
         if(address(priceChecker) == address(0)) {
             return ;
         }
@@ -89,7 +90,8 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
         UserInfo storage user = userInfo2[_pid][_account];
 
         uint256 borrowAmount = IStrategyV2Pair(_this).getBorrowAmountInBaseToken(_pid, _account);
-        uint256 holdBaseAmount = IStrategyV2Pair(_this).getDepositAmount(_pid, _account);
+        uint256 lpTokenAmount = IStrategyV2Pair(_this).pendingLPAmount(_pid, _account);
+        uint256 holdBaseAmount = getLPTokenAmountInBaseToken(_pid, lpTokenAmount, pool.baseToken);
         uint256 borrowFactor = sconfig.getBorrowFactor(_this, _pid);
 
         require(borrowAmount <= holdBaseAmount.mul(borrowFactor).div(1e9), 'borrow limit');
@@ -184,7 +186,7 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
             return (gather, 0, 0);
         }
         PoolInfo memory pool = poolInfo[_pid];
-        uint256 holdBaseAmount = swapPoolImpl.getLPTokenAmountInBaseToken(pool.lpToken, holdLPTokenAmount, pool.baseToken);
+        uint256 holdBaseAmount = getLPTokenAmountInBaseToken(_pid, holdLPTokenAmount, pool.baseToken);
         uint256 borrowRate = borrowAmount.mul(1e9).div(holdBaseAmount);
         if(borrowRate == 0) {
             return (gather, 0, 0);
@@ -251,5 +253,11 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
             if(value == 0) continue ;
             amount = amount.add(swapPoolImpl.getAmountIn(token, value, poolInfo[_pid].baseToken));
         }
+    }
+
+    function getLPTokenAmountInBaseToken(uint256 _pid, uint256 _lpTokenAmount, address _baseToken)
+        public view returns (uint256 amount) {
+        checkOraclePrice(_pid, false);
+        amount = swapPoolImpl.getLPTokenAmountInBaseToken(poolInfo[_pid].lpToken, _lpTokenAmount, _baseToken);
     }
 }
