@@ -342,7 +342,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         external override onlyBank returns (uint256 lpAmount) {
         PoolInfo storage pool = poolInfo[_pid];
         uint256 liquidity = _safeTransferAll(pool.lpToken, address(swapPoolImpl));
-        swapPoolImpl.withdraw(_pid, liquidity, false);
+        swapPoolImpl.withdraw(pool.poolId, liquidity, false);
         lpAmount = _deposit(_pid, _account, _debtFrom0, _bAmount0, address(_debtFrom1), _minOutput);
     }
 
