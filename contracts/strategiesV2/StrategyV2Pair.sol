@@ -413,9 +413,9 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         // check pool deposit limit
         require(lpAmount >= _minOutput, 'insufficient LP output');
         checkDepositLimit(_pid, _account, orginSwapRate);
-        checkBorrowLimit(_pid, _account);
         checkLiquidationLimit(_pid, _account, false);
         if(_bAmount0 > 0) {
+            checkBorrowLimit(_pid, _account);
             checkOraclePrice(_pid, false);
         }
 
@@ -462,6 +462,8 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
     function _withdraw(uint256 _pid, address _account, uint256 _rate) internal {
 
         require(tx.origin == _account, 'not contract');
+
+        checkLiquidationLimit(_pid, _account, false);
 
         // update rewards
         _updatePool(_pid);

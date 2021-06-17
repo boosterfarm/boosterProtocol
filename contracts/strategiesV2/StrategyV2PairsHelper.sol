@@ -94,7 +94,7 @@ contract StrategyV2PairHelper is StrategyV2Data, IStrategyV2PairHelper {
         uint256 holdBaseAmount = getLPTokenAmountInBaseToken(_pid, lpTokenAmount, pool.baseToken);
         uint256 borrowFactor = sconfig.getBorrowFactor(_this, _pid);
 
-        require(borrowAmount <= holdBaseAmount.mul(borrowFactor).div(1e9), 'borrow limit');
+        require(borrowAmount <= holdBaseAmount.sub(borrowAmount).mul(borrowFactor).div(1e9), 'borrow limit');
     }
 
     function calcDepositFee(uint256 _pid)
