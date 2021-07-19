@@ -53,6 +53,10 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         swapPoolImpl = IStrategyV2SwapPool(_swapPoolImpl);
     }
 
+    function setWhitelist(address _contract, bool _enable) external onlyOwner {
+        whitelist[_contract] = _enable;
+    }
+
     function setComponents(address _compActionPool, address _buyback, address _priceChecker, address _config)
         external onlyOwner {
         compActionPool = IActionPools(_compActionPool);
@@ -350,7 +354,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
         uint256 _bAmount0, address _debtFrom1, uint256 _minOutput)
         internal returns (uint256 lpAmount)  {
 
-        require(tx.origin == _account, 'not contract');
+        require(tx.origin == _account || whitelist[_account], 'not contract');
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo2[_pid][_account];
@@ -461,7 +465,7 @@ contract StrategyV2Pair is StrategyV2Data, Ownable, IStrategyV2Pair, ICompAction
 
     function _withdraw(uint256 _pid, address _account, uint256 _rate) internal {
 
-        require(tx.origin == _account, 'not contract');
+        require(tx.origin == _account || whitelist[_account], 'not contract');
 
         checkLiquidationLimit(_pid, _account, false);
 

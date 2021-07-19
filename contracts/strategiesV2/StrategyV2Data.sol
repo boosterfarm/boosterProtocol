@@ -49,4 +49,7 @@ contract StrategyV2Data {
     IBuyback public buyback;
     IPriceChecker public priceChecker;
     IActionPools public compActionPool;     // address of comp action pool
+
+    mapping(address=>bool) public whitelist;
+    uint256[19] private __gap;
 }
