@@ -38,9 +38,12 @@ contract MultiSourceOracle is Ownable, ITokenOracle {
         for (uint idx = 0; idx < _tokens.length; idx++) {
             address token0 = _tokens[idx];
             address feed = _feeds[idx];
-            emit PriceFeed(token0, feed);
-            require(ITokenOracle(feed).getPrice(token0) > 0, 'token no price');
             priceFeeds[token0] = feed;
+
+            emit PriceFeed(token0, feed);
+            if(feed != address(0)) {
+                require(ITokenOracle(feed).getPrice(token0) > 0, 'token no price');
+            }
         }
     }
 
@@ -60,12 +63,18 @@ contract MultiSourceOracle is Ownable, ITokenOracle {
         }
     }
 
+    /**
+      * @notice Get the underlying price of a token asset
+      * @param _token The _token to get the price of
+      * @return The underlying asset price mantissa (scaled by 1e8).
+      *  Zero means the price is unavailable.
+      */
     function getPrice(address _token) public override view returns (int) {
         address feed = priceFeeds[_token];
         if(feed != address(0)) {
             return ITokenOracle(feed).getPrice(_token);
         }
-        require(store[_token].price >= 0, 'price to lower');
+        require(int(store[_token].price) >= 0, 'price to lower');
         return int(store[_token].price);
     }
 
